@@ -19,7 +19,7 @@ export const DEFAULT_CAPABILITIES: Record<string, string[]> = {
   VIEWER: ["VIEW"],
 };
 
-const knownCapabilities = new Set(Object.values(DEFAULT_CAPABILITIES).flat());
+const knownCapabilities = new Set([...Object.values(DEFAULT_CAPABILITIES).flat(), "EDIT_ANALYTICS"]);
 export function isKnownCapability(value: string): boolean {
   return knownCapabilities.has(value);
 }
