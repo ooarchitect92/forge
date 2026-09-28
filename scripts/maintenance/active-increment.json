@@ -8,5 +8,9 @@
     "e29022f3277822492a578787c108188575698832",
     "dbdb454f35ec1b15d9122c3dace47c1d413f9e31"
   ],
-  "sha256": "d60b250bd476df9c983f640f454a2d8a8a4c92d9b75fb3c701d01a9be361bc93"
+  "sha256": "d60b250bd476df9c983f640f454a2d8a8a4c92d9b75fb3c701d01a9be361bc93",
+  "overrides": [
+    {"path":"backend/package.json","before":"c559ada9e193e5db5707db7141e1605e624ecd94","after":"2ab81befbc9fcb3c07668ed4623789ec7bedf28a"},
+    {"path":"backend/package-lock.json","before":"ac5353aec4923b2044e0282853a3c3a8d6cfec11","after":"13b3ac0f830d761d75e55a6004ffedd8bffe5ddc"}
+  ]
 }
