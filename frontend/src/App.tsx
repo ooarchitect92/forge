@@ -25,6 +25,7 @@ const CustomEntriesList = lazy(() => import("./pages/dashboard/CustomEntriesList
 const CustomEntryEditor = lazy(() => import("./pages/dashboard/CustomEntryEditor"));
 const SharedTemplatePreviewPage = lazy(() => import("./pages/templates/SharedTemplatePreviewPage"));
 const PublishedSite = lazy(() => import("./pages/published/PublishedSite"));
+const PlatformControlPage = lazy(() => import("./features/platform-control/PlatformControlPage"));
 
 interface RoleRouteProps {
   allowedRoles: UserRole[];
@@ -242,6 +243,9 @@ function App() {
             path="/site/:websiteId/:pageSlug"
             element={<PublishedSite />}
           />
+
+          {/* ================= PLATFORM CONTROL (separate auth audience/cookie) ================= */}
+          <Route path="/platform-control" element={<PlatformControlPage />} />
 
           {/* ================= ROOT ================= */}
 

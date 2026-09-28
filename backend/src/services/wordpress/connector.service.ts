@@ -12,6 +12,7 @@ import { canUserAccessResource } from "../permission.service.js";
 import { createRevision } from "../revision.service.js";
 import { transformPageToWordPress, transformPageToHTML, computeHtmlHash, sanitizeHtml, parseWordPressContentToElements, TransformedWordPressPage, TransformedHtmlPage } from "./transformer.service.js";
 import { assertSafeUrl } from "../../utils/ssrf.guard.js";
+import { safeEgressJson } from "../../utils/safe-egress.js";
 import { enqueueJob, getJobById, listJobs, cancelJob, retryJob, processNextJob } from "../jobs/jobRunner.js";
 
 const db = prisma as any;
@@ -156,21 +157,20 @@ export async function sendSignedWordPressRequest(
   };
 
   try {
-    const res = await fetch(targetUrl, {
+    const response = await safeEgressJson({
+      url: targetUrl,
       method,
       headers,
       body: method !== "GET" ? rawBody : undefined,
-      signal: AbortSignal.timeout(4000),
+      timeoutMs: 4000,
+      maxBytes: 2 * 1024 * 1024,
     });
-
-    if (!res.ok) {
-      return { success: false, status: res.status, message: `HTTP error ${res.status}` };
+    if (!response.ok) {
+      return { success: false, status: response.status, message: `HTTP error ${response.status}` };
     }
-
-    const json = await res.json();
-    return json;
+    return response.json;
   } catch (err: any) {
-    return { success: false, message: err.message || "Remote destination unreachable" };
+    return { success: false, message: err?.message || "Remote destination unreachable" };
   }
 }
 

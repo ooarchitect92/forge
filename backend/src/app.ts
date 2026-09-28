@@ -59,6 +59,11 @@ import mailerRoutes from "./routes/mailer.routes.js";
 import clientBillingRoutes from "./routes/clientBilling.routes.js";
 import experimentRoutes from "./routes/experiment.routes.js";
 import { rateLimit } from "express-rate-limit";
+import organizationBillingRoutes, { billingWebhookRouter } from "./services/billing/billing.routes.js";
+import governedFileRoutes from "./services/files/file.routes.js";
+import integrationSecretRoutes from "./services/integrations/secret-reference.routes.js";
+import platformControlRoutes from "./services/control/control.routes.js";
+import tenantCapabilityRoutes from "./services/capabilities/tenant-capabilities.routes.js";
 
 const authRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -97,6 +102,10 @@ app.use(
   })
 );
 
+// Payment signatures cover the exact bytes. Mount raw webhook ingress before
+// any JSON parser can normalize the payload.
+app.use("/api/v1/billing/webhooks", express.raw({ type: "application/json", limit: "256kb" }), billingWebhookRouter);
+
 const jsonBodyLimit = process.env.JSON_BODY_LIMIT || "10mb";
 app.use(["/api/v1/auth", "/api/auth"], (_req, res, next) => { res.setHeader("Cache-Control", "no-store"); next(); },
   express.json({ limit: "16kb" }));
@@ -128,7 +137,18 @@ app.use("/api/auth", authRoutes);
 app.use("/api/v1/auth", oauthRoutes);
 app.use("/api/v1/auth", meRoutes);
 
-// Subscriptions, Licensing, Whitelabel & Usage (F-440 to F-452)
+// Organization-scoped commercial SaaS and strict quota APIs.
+app.use("/api/v1/organizations", organizationBillingRoutes);
+app.use("/api/v1/organizations", integrationSecretRoutes);
+app.use("/api/v1/organizations", tenantCapabilityRoutes);
+
+// Governed object storage. Legacy /media remains available during migration.
+app.use("/api/v1/files", governedFileRoutes);
+
+// Separate privileged control-plane audience.
+app.use("/platform/v1", platformControlRoutes);
+
+// Subscriptions, Licensing, Whitelabel & Usage (legacy compatibility while organization billing migrates)
 app.use("/api/v1/subscriptions", subscriptionRoutes);
 app.use("/api/subscriptions", subscriptionRoutes);
 app.use("/api/v1/licenses", licenseRoutes);
