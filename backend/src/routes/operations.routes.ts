@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../middlewares/auth.middleware.js";
 import { authorizeCapability } from "../services/permission.service.js";
+import { healthCheck } from "../controllers/health.controller.js";
 import {
-  getHealthHandler,
   getOperationalStatusHandler,
   listJobsHandler,
   processNextJobHandler,
@@ -22,8 +22,8 @@ import {
 const router = Router();
 
 // Public / Cluster health probe (unauthenticated for load balancers and orchestrators)
-router.get("/health", getHealthHandler);
-router.get("/status", getOperationalStatusHandler);
+router.get("/health", healthCheck);
+router.get("/status", requireAuth, requireRole(["ADMIN", "SUPER_ADMIN", "PLATFORM_ADMIN"]), getOperationalStatusHandler);
 
 // Protected Operations Endpoints (Restricted to Platform Admins)
 router.get("/jobs", requireAuth, requireRole(["ADMIN", "SUPER_ADMIN"]), listJobsHandler);

@@ -1,34 +1,20 @@
-/**
- * Phase 20: Health & Canary Routes
- * Mounts production monitoring endpoints.
- * /health — public (no auth required for load balancer checks)
- * /canary  — public
- * /sign-off — requires auth (admin access intended but auth check is advisory)
- */
 import { Router } from "express";
-import { requireAuth } from "../middlewares/auth.middleware.js";
+import { requireAuth, requireRole } from "../middlewares/auth.middleware.js";
 import {
-  healthCheck,
-  canaryManifest,
-  signOffReport,
-  sanitizeDemo,
-  prismaMigrationStatus,
-  prismaMigrationRecover,
-  diagnosePorts,
+  healthCheck, livenessCheck, canaryManifest, signOffReport, sanitizeDemo,
+  prismaMigrationStatus, prismaMigrationRecover, diagnosePorts,
 } from "../controllers/health.controller.js";
 
 const router = Router();
-
-// Public monitoring endpoints
+const staff = [requireAuth, requireRole(["ADMIN", "SUPER_ADMIN", "PLATFORM_ADMIN"])] as const;
 router.get("/health", healthCheck);
-router.get("/canary", canaryManifest);
-router.get("/prisma-migration-status", prismaMigrationStatus);
-router.get("/prisma-migration-recover-get", prismaMigrationRecover);
-router.post("/prisma-migration-recover", prismaMigrationRecover);
-router.get("/diagnose-ports", diagnosePorts);
-
-// Admin sign-off and utilities (auth recommended but not blocking for ops teams)
-router.get("/sign-off", signOffReport);
-router.post("/dev/sanitize-demo", requireAuth, sanitizeDemo);
-
+router.get("/live", livenessCheck);
+router.get("/ready", healthCheck);
+router.get("/canary", ...staff, canaryManifest);
+router.get("/prisma-migration-status", ...staff, prismaMigrationStatus);
+router.get("/prisma-migration-recover-get", ...staff, prismaMigrationRecover);
+router.post("/prisma-migration-recover", ...staff, prismaMigrationRecover);
+router.get("/diagnose-ports", ...staff, diagnosePorts);
+router.get("/sign-off", ...staff, signOffReport);
+router.post("/dev/sanitize-demo", ...staff, sanitizeDemo);
 export default router;
