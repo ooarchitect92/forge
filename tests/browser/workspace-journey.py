@@ -130,7 +130,7 @@ with sync_playwright() as playwright:
         canonical = owner_context.request.get("http://localhost:5000/api/websites/" + website_id)
         document = canonical.json()["website"]
         external = owner_context.request.put("http://localhost:5000/api/websites/" + website_id,
-            headers={"X-Forge-Intent": "document-command", "If-Match": canonical.headers["etag"],
+            headers={"Origin": base, "X-Forge-Intent": "document-command", "If-Match": canonical.headers["etag"],
                 "Idempotency-Key": "browser-concurrent-document-001"},
             data={"name": "Changed by another command"})
         if external.status != 200:
