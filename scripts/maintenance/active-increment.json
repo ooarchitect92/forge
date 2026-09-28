@@ -1,11 +1,7 @@
 {
   "schemaVersion": 1,
   "repository": "ooarchitect92/forge",
-  "name": "workspace-lifecycle",
-  "parts": ["53648df1e0612c6b721cf27f8c24b48abed4c7d8", "cf0432e2f3870d37e2db5a06c3f41cb4d7d7a08b", "c7f8dfc9f96855f2f6beb4b0f79921fec8e2c927", "1209bdb3858e16ebb0353d8f2e3cdaa5cd704800"],
-  "sha256": "550fab9d8af2ef168f6b6e0b6875cc3641a0370b225ef1259f299f25d5697d70",
-  "overrides": [
-    {"path":"tests/browser/workspace-journey.py", "before":"c9689f851d3a3553cd4bae6da4a294e1217f178f", "after":"f79adc418597c010fd6aa6bfec13f82cda7f09b6"},
-    {"path":"frontend/src/features/workspaces/WorkspaceAdministration.tsx", "before":"4351f82289b037befeacf95011eced050a1695a2", "after":"930f4e55d7b8e098d6ab2bee1cf9a6806d171ea7"}
-  ]
+  "name": "versioned-document-saves",
+  "parts": ["aa309e2fc251c2449c0689c7dd25bc51ef6ce15d", "c03652a2035c787f524232989b563d8e54e76067", "02a25791057c675f93713065207498d02f5dd1c3", "bfb3ca3beef5853bbfaa7ca45ad80ab359684045"],
+  "sha256": "774954aaf3a9072c3908cef2feca71f27ab631559f8dd20eb9a30aef26c9b78c"
 }
