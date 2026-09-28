@@ -1,5 +1,6 @@
 import { createHash } from "crypto";
 import { prisma } from "../../config/prisma.js";
+import { isRetryableTransactionConflict } from "../../config/transaction-conflict.js";
 import { AppError } from "../../utils/app-error.js";
 import type { WorkspaceTransaction } from "./access.js";
 import { requireActiveActor } from "./access.js";
@@ -54,8 +55,7 @@ export async function workspaceCommand<C extends Scope, R extends Result>(input:
       }, { isolationLevel: "Serializable", maxWait: 2000, timeout: 5000 });
     } catch (error) {
       const failure = error as { code?: string; meta?: { code?: string } };
-      const conflict = failure.code === "P2034" || failure.code === "P2002" ||
-        (failure.code === "P2010" && ["23505", "40001"].includes(failure.meta?.code || ""));
+      const conflict = isRetryableTransactionConflict(error);
       if (conflict && attempt < 2) continue;
       if (conflict) throw new AppError("A concurrent change could not be completed; retry with the same key", 409, "CONCURRENT_CHANGE");
       if (failure.code === "P2010" && failure.meta?.code === "42P01") {
