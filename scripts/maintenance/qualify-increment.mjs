@@ -85,6 +85,18 @@ if (process.argv[2] === 'stage') {
   for (const entry of changes.files.filter(entry=>entry.after===null)) {
     if (git('ls-files','--',entry.path)) git('rm', '--', entry.path);
   }
+  indexMatches(changes);
+  const overrides = pointer.overrides ?? [];
+  requireCondition(Array.isArray(overrides) && overrides.length <= 100, 'INVALID_CORRECTIONS');
+  for (const correction of overrides) {
+    const entry = changes.files.find(entry => entry.path === correction.path);
+    requireCondition(entry && entry.after === correction.before && /^[a-f0-9]{40}$/.test(correction.after), 'CORRECTION_BASE_MISMATCH');
+    const object = await github(`git/blobs/${correction.after}`);
+    requireCondition(object.encoding === 'base64', 'UNEXPECTED_BLOB_ENCODING');
+    const bytes = Buffer.from(object.content, 'base64');
+    requireCondition(gitBlob(bytes) === correction.after && bytes.length < 2000000, 'CORRECTION_INTEGRITY_FAILURE');
+    writeFileSync(entry.path, bytes); git('add', '--', entry.path); entry.after = correction.after;
+  }
   indexMatches(changes); git('diff','--cached','--check');
   writeFileSync(saved, JSON.stringify(changes));
   console.log(`Staged ${changes.files.length} reviewed file changes. No branch updated.`);
@@ -100,7 +112,7 @@ if (process.argv[2] === 'stage') {
     result.push({path:entry.path,mode:'100644',type:'blob',sha:entry.after});
   }
   writeFileSync('qualified-increment.json', JSON.stringify({repository, qualificationCommit:process.env.GITHUB_SHA,
-    changesetSha256:pointer.sha256, testedTree:git('write-tree'), files:result,
+    changesetSha256:pointer.sha256, pointerSha256:sha(Buffer.from(JSON.stringify(pointer))), testedTree:git('write-tree'), files:result,
     scope:'Production builds, source-unit, real PostgreSQL/HTTP and browser workspace journey; not production certification'},null,2));
   console.log(`Exported ${result.length} verified file mappings. No branch updated.`);
 } else throw new Error('EXPECTED_STAGE_OR_EXPORT');
