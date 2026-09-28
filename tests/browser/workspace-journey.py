@@ -9,6 +9,7 @@ import pathlib
 import re
 import shutil
 import time
+import traceback
 from urllib.parse import urlparse
 from playwright.sync_api import sync_playwright, expect
 
@@ -162,13 +163,21 @@ with sync_playwright() as playwright:
         record("document.browser.stale-tab-conflict", since)
 
     except Exception as error:
-        try:
-            owner.screenshot(path=str(output / "workspace-failure.png"), full_page=True)
-            (output / "workspace-failure.txt").write_text(owner.locator("body").inner_text()[:12000])
-        except Exception:
-            pass
+        # Synthetic fixtures only. Capture the actual failing tab before teardown.
+        for name in ("owner", "member", "outsider", "stale"):
+            page = locals().get(name)
+            if page is not None:
+                try:
+                    page.screenshot(path=str(output / (name + "-failure.png")), full_page=True)
+                    (output / (name + "-failure.txt")).write_text(page.locator("body").inner_text()[:12000])
+                except Exception:
+                    pass
+        diagnostics = traceback.format_exc()
+        for identity in fixture.values():
+            if isinstance(identity, dict) and identity.get("token"):
+                diagnostics = diagnostics.replace(identity["token"], "[REDACTED]")
+        (output / "journey-failure.txt").write_text(diagnostics[:20000])
         checks.append({"testId": "workspace.browser.journey", "passed": False, "errorType": type(error).__name__})
-        # Avoid logging arbitrary DOM/network payloads or fixture secrets.
         raise
     finally:
         browser.close()
