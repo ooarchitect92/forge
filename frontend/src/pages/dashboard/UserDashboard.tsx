@@ -4,6 +4,7 @@ import { useAuth } from "../../context/AuthContext";
 import { RoleManagerModal } from "./components/RoleManagerModal";
 import { TeamSwitcher } from "./components/TeamSwitcher";
 import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
+import { WorkspaceDashboardView } from "../../features/workspaces/WorkspaceDashboardView";
 import { TeamDashboardView } from "./components/TeamDashboardView";
 import DeveloperApiSettings from "./components/DeveloperApiSettings";
 import PluginHub from "./components/PluginHub";
@@ -332,14 +333,14 @@ function UserDashboard() {
       case "cpts": return <CustomPostTypesPanel />;
       case "composer-installation": return <ComposerPanel />;
       case "performance": return <PerformancePanel />;
-      default: return <WebsitesTab />;
+      default: return renderWebsitesTab();
     }
   };
 
   const activeNavItem = NAV_GROUPS.flatMap(g => g.items).find(i => i.id === activeTab);
 
   // ─── Websites Tab ────────────────────────────────────────────
-  function WebsitesTab() {
+  function renderWebsitesTab() {
     return (
       <div className="space-y-6">
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -355,8 +356,8 @@ function UserDashboard() {
             </div>
           </div>
           <div className="mt-4 pt-4 border-t border-slate-100 flex flex-wrap items-center gap-3">
-            <WorkspaceSwitcher apiUrl={apiUrl} currentWorkspaceId={currentWorkspaceId} onSelectWorkspace={setCurrentWorkspaceId} />
-            <TeamSwitcher apiUrl={apiUrl} currentTeamId={currentTeamId} onSelectTeam={setCurrentTeamId} />
+            <WorkspaceSwitcher apiUrl={apiUrl} currentWorkspaceId={currentWorkspaceId} onSelectWorkspace={(id) => { setCurrentWorkspaceId(id); setCurrentTeamId(null); setSelectedSiteIds([]); setIsModalOpen(false); setIsImportKitOpen(false); }} />
+            <TeamSwitcher apiUrl={apiUrl} currentTeamId={currentTeamId} onSelectTeam={(id) => { setCurrentTeamId(id); setCurrentWorkspaceId(null); setSelectedSiteIds([]); setIsModalOpen(false); setIsImportKitOpen(false); }} />
             <Link
               to="/subscriptions"
               className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-100"
@@ -365,6 +366,8 @@ function UserDashboard() {
             </Link>
 
             <button
+              disabled={Boolean(currentWorkspaceId)}
+              title={currentWorkspaceId ? "Use Create in this workspace below" : "Create a personal website"}
               onClick={() => {
                 setError("");
                 setWebsiteName("");
@@ -376,9 +379,10 @@ function UserDashboard() {
             </button>
 
             <button
+              disabled={Boolean(currentWorkspaceId)}
               onClick={() => setIsImportKitOpen(true)}
               className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-xs font-semibold text-blue-700 shadow-sm transition hover:bg-blue-100 active:scale-[0.98]"
-              title="Import a Website Kit JSON file to create a new project"
+              title={currentWorkspaceId ? "Workspace-scoped kit import is not yet available" : "Import a Website Kit JSON file to create a new project"}
             >
               <span>Import Kit 📥</span>
             </button>
@@ -395,7 +399,9 @@ function UserDashboard() {
         {/* Real-Time Resource Usage & Quota Bar (F-450, F-452) */}
         <UsageTelemetryWidget compact />
 
-        {currentTeamId ? (
+        {currentWorkspaceId ? (
+          <WorkspaceDashboardView key={currentWorkspaceId} apiUrl={apiUrl} workspaceId={currentWorkspaceId} onOpenWebsite={(id) => navigate(`/editor/${id}`)} />
+        ) : currentTeamId ? (
           <TeamDashboardView teamId={currentTeamId} apiUrl={apiUrl} onNavigateEditor={id => navigate(`/editor/${id}`)} />
         ) : (
           <div>

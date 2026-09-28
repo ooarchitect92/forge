@@ -18,7 +18,7 @@ import UserDashboard from "./pages/dashboard/UserDashboard";
 const AdminDashboard = lazy(() => import("./pages/dashboard/AdminDashboard"));
 const SuperAdminDashboard = lazy(() => import("./pages/dashboard/SuperAdminDashboard"));
 const SubscriptionPage = lazy(() => import("./pages/subscriptions/SubscriptionPage"));
-const WebsiteEditor = lazy(() => import("./pages/editor/WebsiteEditor"));
+const WebsiteEditor = lazy(() => import("./features/editor-access/EditorRoute"));
 const CustomPostTypesList = lazy(() => import("./pages/dashboard/CustomPostTypesList"));
 const CustomPostTypeBuilder = lazy(() => import("./pages/dashboard/CustomPostTypeBuilder"));
 const CustomEntriesList = lazy(() => import("./pages/dashboard/CustomEntriesList"));

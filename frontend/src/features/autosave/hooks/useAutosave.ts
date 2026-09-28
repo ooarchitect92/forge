@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { AutosaveStatus } from "../types/autosave.types";
+import { saveAuthorizedWebsite } from "../../editor-access/save-authorized-website";
 import type { EditorElement } from "../../../pages/editor/WebsiteEditor";
 import type { PageSettingsData } from "../../revision-history/types/revisionHistory.types";
 
@@ -62,6 +63,9 @@ export function useAutosave({
 
   // References for tracking state without causing extra renders
   const baselineRef = useRef<string | null>(null);
+  const failedSnapshotRef = useRef<string | null>(null);
+  const requestController = useRef<AbortController | null>(null);
+  const mountedRef = useRef(true);
   const isInitializedRef = useRef<boolean>(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSavingRef = useRef<boolean>(false);
@@ -198,6 +202,7 @@ export function useAutosave({
         newPageCss !== undefined ? newPageCss : latestPropsRef.current.pageCss
       );
       baselineRef.current = snapshot;
+      failedSnapshotRef.current = null;
       isInitializedRef.current = true;
       setStatus("saved");
       setLastSavedAt(Date.now());
@@ -241,31 +246,11 @@ export function useAutosave({
           },
         };
 
-        // 1. Always persist snapshot to local storage as immediate fail-safe
-        try {
-          localStorage.setItem(`forgestudio_editor_${currentWebId}`, JSON.stringify(bodyPayload.editorData));
-        } catch (lsErr) {
-          console.warn("Failed to write to localStorage fallback:", lsErr);
-        }
-
-        // 2. Attempt backend API save
-        try {
-          const res = await fetch(`${currentApiUrl}/api/websites/${currentWebId}`, {
-            method: "PUT",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            credentials: "include",
-            body: JSON.stringify(bodyPayload),
-          });
-
-          if (!res.ok) {
-            const data = await res.json().catch(() => ({}));
-            console.warn("Backend save endpoint returned non-OK status, saved locally:", data);
-          }
-        } catch (netErr) {
-          console.warn("Backend save network request failed, saved locally:", netErr);
-        }
+        const controller = new AbortController();
+        requestController.current = controller;
+        await saveAuthorizedWebsite(currentApiUrl, currentWebId, bodyPayload, controller.signal);
+        if (!mountedRef.current || controller.signal.aborted) return;
+        failedSnapshotRef.current = null;
 
         // Update baseline to the snapshot that was persisted
         baselineRef.current = payload.snapshot;
@@ -305,7 +290,10 @@ export function useAutosave({
         isSavingRef.current = false;
         queuedPayloadRef.current = null;
         console.error("Autosave error:", err);
-        setStatus("saved"); // Local save succeeded
+        if (!mountedRef.current) return;
+        failedSnapshotRef.current = payload.snapshot;
+        setStatus("error");
+        setErrorMessage(err instanceof Error ? err.message : "The server did not confirm this save");
       }
     },
     [serializeState]
@@ -387,6 +375,10 @@ export function useAutosave({
       }
       return;
     }
+
+    // A failed immutable payload is not automatically retried without an
+    // idempotency contract. A new edit or explicit manual save is required.
+    if (currentSnapshot === failedSnapshotRef.current) return;
 
     // Meaningful change detected -> status becomes unsaved
     setStatus("unsaved");
@@ -482,7 +474,10 @@ export function useAutosave({
 
   // Cleanup on unmount
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
+      requestController.current?.abort();
       if (timerRef.current) {
         clearTimeout(timerRef.current);
       }
@@ -493,7 +488,7 @@ export function useAutosave({
     status,
     lastSavedAt,
     errorMessage,
-    isDirty: status === "unsaved" || status === "saving",
+    isDirty: status === "unsaved" || status === "saving" || status === "error",
     updateBaseline,
   };
 }

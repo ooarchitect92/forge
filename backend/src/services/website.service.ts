@@ -1,6 +1,7 @@
 import { prisma } from "../config/prisma.js";
 import { AppError } from "../utils/app-error.js";
-import { checkWebsiteLimit } from "./subscription.service.js";
+import { getScopedWebsite, listScopedOwnedWebsites } from "./websites/scoped-access.js";
+import { createPersonalWebsite } from "./websites/create-personal-website.js";
 import crypto from "crypto";
 import { canUserAccessResource } from "./permission.service.js";
 import { recordAuditLog } from "./audit.service.js";
@@ -394,8 +395,7 @@ export async function initWebsiteTable() {
   }
 }
 
-// Auto-run initialization
-initWebsiteTable();
+// Schema is provisioned by the migration process, never by importing this service.
 
 function generateSlug(name: string): string {
   const baseSlug = name
@@ -410,58 +410,9 @@ function generateSlug(name: string): string {
 /**
  * Get all websites belonging to a specific user
  */
-export async function getUserWebsites(userId: string) {
-  try {
-    if (db?.website?.findMany) {
-      const websites = await db.website.findMany({
-        where: { userId },
-        include: {
-          wpConnection: {
-            select: {
-              id: true,
-              siteUrl: true,
-              wpSiteName: true,
-              status: true,
-              lastVerifiedAt: true,
-              createdAt: true,
-            },
-          },
-          mailerConfig: {
-            select: {
-              id: true,
-              host: true,
-              port: true,
-              username: true,
-              fromName: true,
-              fromEmail: true,
-              isVerified: true,
-            },
-          },
-        },
-        orderBy: { createdAt: "desc" },
-      });
-      if (websites) return websites;
-    }
-
-    const rawWebsites: any[] = await prisma.$queryRaw`
-      SELECT w.id, w."userId", w.name, w.slug, w.status, w."editorData", w."createdAt", w."updatedAt",
-        (SELECT row_to_json(wp) FROM (
-          SELECT id, "siteUrl", "wpSiteName", status, "lastVerifiedAt", "createdAt"
-          FROM wordpress_connections WHERE "websiteId" = w.id
-        ) wp) as "wpConnection",
-        (SELECT row_to_json(mc) FROM (
-          SELECT id, host, port, username, "fromName", "fromEmail", "isVerified"
-          FROM site_mailer_configs WHERE "websiteId" = w.id
-        ) mc) as "mailerConfig"
-      FROM websites w
-      WHERE w."userId" = ${userId}::uuid
-      ORDER BY w."createdAt" DESC
-    `;
-    return rawWebsites || [];
-  } catch (error) {
-    console.error("Error fetching user websites:", error);
-    return [];
-  }
+export async function getUserWebsites(userId: string): Promise<any[]> {
+  // Legacy response surface stays compatible while owned repository contracts migrate.
+  return listScopedOwnedWebsites(userId);
 }
 
 /**
@@ -634,69 +585,8 @@ export async function updateCookieConsentConfig(websiteId: string, userId: strin
 /**
  * Get a single website by ID with ownership check
  */
-export async function getWebsiteById(websiteId: string, userId: string) {
-  try {
-    let website: any = null;
-    let permission = "NONE";
-
-    if (db?.website?.findUnique) {
-      website = await db.website.findUnique({
-        where: { id: websiteId },
-        include: {
-          customCodeSnippets: true
-        }
-      });
-
-      if (website) {
-        if (website.userId === userId) {
-          permission = "OWNER";
-        } else {
-          // Check WebsiteCollaborator explicitly
-          const collab = await db.websiteCollaborator.findUnique({
-            where: {
-              websiteId_userId: { websiteId, userId }
-            }
-          });
-          if (collab) {
-            permission = collab.permission;
-          } else {
-            website = null; // Purge access
-          }
-        }
-      }
-    }
-
-    if (!website) {
-      // Raw Fallback mapped exactly to original flow logic but integrating permissions
-      const rawWebsites: any[] = await prisma.$queryRaw`
-        SELECT w.id, w."userId", w.name, w.slug, w.status, w."editorData", w."createdAt", w."updatedAt",
-               CASE WHEN w."userId" = ${userId}::uuid THEN 'OWNER' ELSE c.permission END as "userPermission"
-        FROM websites w
-        LEFT JOIN website_collaborators c ON c."websiteId" = w.id AND c."userId" = ${userId}::uuid
-        WHERE w.id = ${websiteId}::uuid AND (w."userId" = ${userId}::uuid OR c.id IS NOT NULL)
-        LIMIT 1
-      `;
-      if (rawWebsites && rawWebsites.length > 0) {
-        website = rawWebsites[0];
-        permission = website.userPermission || "REVIEWER";
-        delete website.userPermission;
-      }
-    }
-
-    if (!website) {
-      throw new AppError(
-        "Website not found or access denied",
-        404,
-        "WEBSITE_NOT_FOUND"
-      );
-    }
-
-    // Embed current user's explicit authorization
-    return { ...website, userPermission: permission };
-  } catch (error) {
-    if (error instanceof AppError) throw error;
-    throw new AppError("Failed to fetch website", 500, "WEBSITE_FETCH_FAILED");
-  }
+export async function getWebsiteById(websiteId: string, userId: string): Promise<any> {
+  return getScopedWebsite(websiteId, userId);
 }
 
 /**
@@ -705,76 +595,12 @@ export async function getWebsiteById(websiteId: string, userId: string) {
 export async function createWebsite(
   userIdOrOptions: string | { userId: string; name: string; slug?: string; editorData?: any; templateId?: string },
   nameArg?: string
-) {
-  let userId: string;
-  let rawName: string;
-  let customSlug: string | undefined;
-  let customEditorData: any | undefined;
-
-  if (typeof userIdOrOptions === "object" && userIdOrOptions !== null) {
-    userId = userIdOrOptions.userId;
-    rawName = userIdOrOptions.name;
-    customSlug = userIdOrOptions.slug;
-    customEditorData = userIdOrOptions.editorData;
-  } else {
-    userId = userIdOrOptions;
-    rawName = nameArg || "";
-  }
-
-  const trimmedName = rawName?.trim();
-  if (!trimmedName) {
-    throw new AppError("Website name is required", 400, "INVALID_NAME");
-  }
-
-  // 1. Get current website count for user
-  const currentWebsites = await getUserWebsites(userId);
-  const currentCount = currentWebsites.length;
-
-  // 2. Check subscription website limit
-  const limitCheck = await checkWebsiteLimit(userId, currentCount);
-
-  if (!limitCheck.allowed) {
-    const limit = limitCheck.limit || 1;
-    throw new AppError(
-      `Your current plan allows up to ${limit} website${limit === 1 ? "" : "s"}. Please upgrade your plan to create another website.`,
-      403,
-      "WEBSITE_LIMIT_EXCEEDED"
-    );
-  }
-
-  const slug = customSlug || generateSlug(trimmedName);
-  const initialEditorData = customEditorData || {
-    version: 1,
-    elements: [],
-  };
-
-  try {
-    if (db?.website?.create) {
-      const newWebsite = await db.website.create({
-        data: {
-          userId,
-          name: trimmedName,
-          slug,
-          status: "DRAFT",
-          editorData: initialEditorData,
-        },
-      });
-      return newWebsite;
-    }
-
-    // Raw SQL Fallback
-    const initialJsonStr = JSON.stringify(initialEditorData);
-    const created: any[] = await prisma.$queryRaw`
-      INSERT INTO websites (id, "userId", name, slug, status, "editorData", "createdAt", "updatedAt")
-      VALUES (gen_random_uuid(), ${userId}::uuid, ${trimmedName}, ${slug}, 'DRAFT', ${initialJsonStr}::jsonb, NOW(), NOW())
-      RETURNING id, "userId", name, slug, status, "editorData", "createdAt", "updatedAt"
-    `;
-
-    return created[0];
-  } catch (error) {
-    console.error("Error creating website:", error);
-    throw new AppError("Failed to create website", 500, "CREATE_FAILED");
-  }
+): Promise<any> {
+  const input = typeof userIdOrOptions === "string"
+    ? { userId: userIdOrOptions, name: nameArg || "" }
+    : userIdOrOptions;
+  if (input.editorData !== undefined) validateCanonicalEditorData(input.editorData);
+  return createPersonalWebsite(input);
 }
 
 /**

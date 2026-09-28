@@ -739,6 +739,8 @@ model Organization {
   members     OrganizationMember[]
   workspaces  Workspace[]
   websites    Website[]
+  workspaceCommands WorkspaceCommandJournal[]
+  workspaceEvents WorkspaceOutbox[]
 
   @@index([ownerId])
   @@map("organizations")
@@ -758,6 +760,37 @@ model OrganizationMember {
   @@unique([organizationId, userId])
   @@index([userId])
   @@map("organization_members")
+}
+
+
+// Durable command tables use forced RLS and additional SQL constraints in the
+// 20260928090000 migration. Never use db push against a production database.
+model WorkspaceCommandJournal {
+  organizationId String @db.Uuid
+  actorId String @db.Uuid
+  operation String @db.VarChar(100)
+  idempotencyKey String @db.VarChar(128)
+  requestHash String @db.Char(64)
+  result Json
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  @@id([organizationId, actorId, operation, idempotencyKey])
+  @@index([createdAt], map: "workspace_command_journal_created_idx")
+  @@map("workspace_command_journal")
+}
+
+model WorkspaceOutbox {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String @db.Uuid
+  actorId String @db.Uuid
+  operation String @db.VarChar(100)
+  resourceId String @db.Uuid
+  schemaVersion Int @default(1)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  dispatchedAt DateTime? @db.Timestamptz(6)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  // Pending partial index and schemaVersion check are migration-owned SQL.
+  @@map("workspace_outbox")
 }
 
 model WorkspaceMember {

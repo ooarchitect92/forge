@@ -47,6 +47,7 @@ import {
 } from "./routes/index.js";
 
 import apiV1Routes from "./routes/api-v1.routes.js";
+import tenantWorkspaceRoutes from "./routes/tenant-workspace.routes.js";
 import operationsRoutes from "./routes/operations.routes.js";
 import auditLogRoutes from "./routes/auditLog.routes.js";
 import mediaRoutes from "./routes/media.routes.js";
@@ -126,6 +127,9 @@ app.use("/api/v1/agency", whitelabelRoutes);
 app.use("/api/agency", whitelabelRoutes);
 app.use("/api/v1/users/me", usageRoutes);
 app.use("/api/users/me", usageRoutes);
+
+// Workspace commands have their own validated scope and idempotency contract.
+app.use("/api/v1/tenant-workspaces", tenantWorkspaceRoutes);
 
 // Public API v1 Standardized Endpoints
 app.use("/api/v1", apiV1Routes);

@@ -22,6 +22,8 @@ import { useAutosave, AutosaveStatusIndicator } from "../../features/autosave";
 import { AtomicEditor, GlobalElementService, ReusableComponentService } from "../../features/atomic-editor";
 import { publishingService } from "../../features/publishing/services/publishingService";
 import { useComponentAccess } from "../../features/permissions/hooks/useComponentAccess";
+import { loadAuthorizedWebsite } from "../../features/editor-access/load-authorized-website";
+import { saveAuthorizedWebsite } from "../../features/editor-access/save-authorized-website";
 import { ContentOnlyInspector } from "./components/ContentOnlyInspector";
 import { ExperimentManagerModal } from "./components/experiments/ExperimentManagerModal";
 import { useCanvasPresence } from "../../features/collaboration/hooks/useCanvasPresence";
@@ -1791,36 +1793,15 @@ export default function WebsiteEditor() {
       return;
     }
 
+    const controller = new AbortController();
     const fetchWebsite = async () => {
       try {
         setLoading(true);
+        setWebsite(null);
         setErrorMessage("");
 
-        let loadedSite: any = null;
-        try {
-          const res = await fetch(`${apiUrl}/api/websites/${websiteId}`, {
-            credentials: "include",
-          });
-          if (res.ok) {
-            const data = await res.json();
-            loadedSite = data.website || data;
-          }
-        } catch (netErr) {
-          console.warn("Backend fetch failed, checking localStorage fallback...", netErr);
-        }
-
-        // Local Storage Fallback if backend fetch was non-OK or unavailable
-        if (!loadedSite) {
-          const cachedStr = localStorage.getItem(`forgestudio_editor_${websiteId}`);
-          if (cachedStr) {
-            try {
-              const editorData = JSON.parse(cachedStr);
-              loadedSite = { id: websiteId, name: "Local Website", editorData };
-            } catch (e) {
-              console.error("Failed to parse cached editor data:", e);
-            }
-          }
-        }
+        const loadedSite = await loadAuthorizedWebsite(apiUrl, websiteId, controller.signal);
+        if (controller.signal.aborted) return;
 
         if (loadedSite) {
           setWebsite(loadedSite);
@@ -1828,13 +1809,16 @@ export default function WebsiteEditor() {
           // Fetch component accesses
           try {
             const accessRes = await fetch(`${apiUrl}/api/v1/component-access/${websiteId}/all`, {
+              signal: controller.signal,
               credentials: "include"
             });
             const accessData = await accessRes.json();
+            if (controller.signal.aborted) return;
             if (accessRes.ok && accessData.accesses) {
               setAllowedComponentIds(new Set(accessData.accesses.map((a: any) => a.componentId)));
             }
           } catch (e) {
+            if (controller.signal.aborted) return;
             console.error("Failed to fetch accesses", e);
           }
 
@@ -1961,13 +1945,14 @@ export default function WebsiteEditor() {
           setElements([]);
         }
       } catch (err) {
-        console.error("Error loading website:", err);
+        if (!controller.signal.aborted) setErrorMessage(err instanceof Error ? err.message : "Website loading failed");
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     };
 
     fetchWebsite();
+    return () => controller.abort();
   }, [websiteId, apiUrl]);
 
   // Single source of truth: canonicalPages ensures pages[activePageId] is always up-to-date synchronously
@@ -2006,7 +1991,7 @@ export default function WebsiteEditor() {
     popups,
     pageCss,
     apiUrl,
-    isLoadingWebsite: loading,
+    isLoadingWebsite: loading || !website || !userAccess.canEditContent,
   });
 
   // F-322 / F-334 Save & Update Template Integration
@@ -2416,7 +2401,7 @@ export default function WebsiteEditor() {
 
   // Save Website Data
   const handleSave = async () => {
-    if (!websiteId) return;
+    if (!websiteId || !website || !userAccess.canEditContent) return;
 
     try {
       setSaving(true);
@@ -2481,30 +2466,8 @@ export default function WebsiteEditor() {
         },
       };
 
-      // 1. Always save locally immediately
-      try {
-        localStorage.setItem(`forgestudio_editor_${websiteId}`, JSON.stringify(payload.editorData));
-      } catch (lsErr) {
-        console.warn("Failed to write to localStorage:", lsErr);
-      }
-
-      // 2. Attempt backend API save
-      try {
-        const res = await fetch(`${apiUrl}/api/websites/${websiteId}`, {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          credentials: "include",
-          body: JSON.stringify(payload),
-        });
-
-        if (!res.ok) {
-          console.warn("Backend save returned non-OK status, saved locally.");
-        }
-      } catch (netErr) {
-        console.warn("Backend save request failed, saved locally:", netErr);
-      }
+      // Only a confirmed server response advances the saved baseline.
+      await saveAuthorizedWebsite(apiUrl, websiteId, payload);
 
       // Update F-321 Autosave baseline on successful save
       updateAutosaveBaseline(
@@ -2525,7 +2488,8 @@ export default function WebsiteEditor() {
       setSaveMessage("Saved successfully!");
       setTimeout(() => setSaveMessage(""), 3000);
     } catch (err: any) {
-      setSaveMessage("Saved locally!");
+      setSaveMessage("Save failed — changes remain unsaved");
+      setErrorMessage(err instanceof Error ? err.message : "The server did not confirm this save");
       setTimeout(() => setSaveMessage(""), 3000);
     } finally {
       setSaving(false);
@@ -6943,6 +6907,13 @@ export default function WebsiteEditor() {
         </div>
       </div>
     );
+  }
+
+  if (!website) {
+    return <main className="min-h-screen flex flex-col items-center justify-center gap-4 p-6" role="alert">
+      <p>{errorMessage || "Website access could not be established."}</p>
+      <Link to="/dashboard" className="underline">Return to dashboard</Link>
+    </main>;
   }
 
   return (
