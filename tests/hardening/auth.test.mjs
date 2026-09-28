@@ -6,8 +6,8 @@ import { loadTypeScript } from './load-typescript.mjs';
 async function fixture(overrides = {}) {
   const calls = { reads: [], writes: [], next: [] };
   const session = {
-    id: 'session-1', revokedAt: null, expiresAt: new Date(Date.now() + 600_000),
-    lastUsedAt: new Date(), user: { id: 'user-1', status: 'ACTIVE', role: 'USER' },
+    id: 'session-1', authEpoch: 1, authMethod: 'local', audience: 'TENANT', authTime: new Date(), revokedAt: null, expiresAt: new Date(Date.now() + 600_000),
+    lastUsedAt: new Date(), user: { id: 'user-1', status: 'ACTIVE', role: 'USER', authEpoch: 1 },
     ...overrides,
   };
   const prisma = { session: {

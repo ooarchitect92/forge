@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { Request } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middlewares/auth.middleware.js";
+import { requirePrivilegedMutation } from "../middlewares/privileged-mutation.js";
 import { AppError } from "../utils/app-error.js";
 import * as workspaces from "../services/workspaces/workspace-api.service.js";
 
@@ -24,7 +25,7 @@ function key(req: Request): string {
   if (req.get("X-Forge-Intent") !== "workspace-command") throw new AppError("Workspace command header is required", 403, "REQUEST_INTENT_REQUIRED");
   return req.get("Idempotency-Key") || "";
 }
-router.use(requireAuth);
+router.use(requireAuth, requirePrivilegedMutation);
 router.get("/", async (_req, res, next) => {
   try { res.json({ success: true, ...await workspaces.listTenantWorkspaces(res.locals.user.id) }); }
   catch (error) { next(error); }

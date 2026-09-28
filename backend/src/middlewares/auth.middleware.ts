@@ -1,12 +1,14 @@
 import type { Request, Response, NextFunction } from "express";
 import { AUTH_COOKIE_NAME } from "../config/auth.js";
 import { authenticateSession } from "../services/session-authentication.js";
+import { requireRecentMfa } from "../modules/identity/domain/assurance.js";
 import { AppError } from "../utils/app-error.js";
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   try {
     let token: unknown = req.cookies?.[AUTH_COOKIE_NAME];
-    if (!token && req.headers.authorization?.startsWith("Bearer ")) {
+    if (req.headers.authorization !== undefined) {
+      if (!req.headers.authorization.startsWith("Bearer ")) throw new AppError("Invalid authorization scheme", 401, "UNAUTHORIZED");
       token = req.headers.authorization.substring(7).trim();
     }
     const session = await authenticateSession(token);
@@ -36,6 +38,10 @@ export function requireRole(allowedRoles: string | string[]) {
         success: false,
         error: { code: "FORBIDDEN", message: "You do not have access to this resource." },
       });
+    }
+    if (process.env.NODE_ENV === "production") {
+      try { requireRecentMfa(res.locals.session, true); }
+      catch (error) { return next(error); }
     }
     next();
   };

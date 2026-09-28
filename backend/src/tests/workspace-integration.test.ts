@@ -95,20 +95,28 @@ test("workspace contracts on disposable PostgreSQL", async (t) => {
   });
 
   await t.test("new journal and outbox enforce forced RLS under a non-owner role", async () => {
-    await pgPool.query('CREATE ROLE forge_workspace_rls_fixture NOLOGIN NOSUPERUSER NOBYPASSRLS; GRANT SELECT, INSERT ON workspace_command_journal, workspace_outbox TO forge_workspace_rls_fixture');
+    // Roles are cluster-wide, unlike the disposable database. A per-run role
+    // avoids collisions with another test DB and is always revoked and dropped.
+    const rlsRole = `forge_workspace_rls_${randomUUID().replaceAll("-", "")}`;
+    assert.match(rlsRole, /^forge_workspace_rls_[a-f0-9]{32}$/);
+    await pgPool.query(`CREATE ROLE "${rlsRole}" NOLOGIN NOSUPERUSER NOBYPASSRLS;
+      GRANT SELECT, INSERT ON workspace_command_journal, workspace_outbox TO "${rlsRole}"`);
     const client = await pgPool.connect();
     try {
-      await client.query('BEGIN; SET LOCAL ROLE forge_workspace_rls_fixture');
+      await client.query(`BEGIN; SET LOCAL ROLE "${rlsRole}"`);
       await client.query("SELECT set_config('app.tenant_id',$1,true)", [organizationId]);
       assert.ok((await client.query('SELECT id FROM workspace_outbox')).rows.length > 0);
       await client.query("SELECT set_config('app.tenant_id',$1,true)", [randomUUID()]);
       assert.equal((await client.query('SELECT id FROM workspace_outbox')).rows.length, 0);
       await assert.rejects(client.query('INSERT INTO workspace_outbox ("organizationId","actorId",operation,"resourceId") VALUES ($1,$2,$3,$4)', [organizationId, owner.id, "FORBIDDEN_TEST", firstId]), { code: "42501" });
       await client.query('ROLLBACK');
-      await client.query('BEGIN; SET LOCAL ROLE forge_workspace_rls_fixture');
+      await client.query(`BEGIN; SET LOCAL ROLE "${rlsRole}"`);
       assert.equal((await client.query('SELECT id FROM workspace_outbox')).rows.length, 0);
       await client.query('COMMIT');
-    } finally { await client.query('ROLLBACK'); client.release(); }
+    } finally {
+      await client.query('ROLLBACK'); client.release();
+      await pgPool.query(`REVOKE ALL PRIVILEGES ON workspace_command_journal, workspace_outbox FROM "${rlsRole}"; DROP ROLE "${rlsRole}"`);
+    }
     const { rows } = await pgPool.query("SELECT relrowsecurity,relforcerowsecurity FROM pg_class WHERE relname IN ('workspace_outbox','workspace_command_journal')");
     assert.equal(rows.length, 2);
     assert.ok(rows.every((row) => row.relrowsecurity && row.relforcerowsecurity));
@@ -116,7 +124,7 @@ test("workspace contracts on disposable PostgreSQL", async (t) => {
 
   await t.test("HTTP boundary validates identity, intent, schema and membership", async () => {
     const token = randomUUID();
-    await prisma.session.create({ data: { userId: member.id, tokenHash: createHash("sha256").update(token).digest("hex"), expiresAt: new Date(Date.now()+60000) } });
+    await prisma.session.create({ data: { authEpoch: 1, authMethod: "local", authTime: new Date(), audience: "TENANT", userId: member.id, tokenHash: createHash("sha256").update(token).digest("hex"), expiresAt: new Date(Date.now()+60000) } });
     const app = express(); app.use(express.json({ limit: "32kb" }), cookieParser());
     app.use("/api/v1/tenant-workspaces", workspaceRouter); app.use(errorMiddleware);
     const server = app.listen(0, "127.0.0.1");

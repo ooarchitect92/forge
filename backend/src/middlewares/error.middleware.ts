@@ -1,3 +1,4 @@
+import { ZodError } from "zod";
 import { postgresFailure } from "../config/postgres-failure.js";
 import { randomUUID } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
@@ -16,6 +17,8 @@ export function errorMiddleware(error: unknown, _req: Request, res: Response, ne
     status = error.statusCode;
     code = /^[A-Z0-9_]{1,80}$/.test(error.code) ? error.code : "APPLICATION_ERROR";
     message = error.message;
+  } else if (error instanceof ZodError) {
+    status = 422; code = "VALIDATION_ERROR"; message = "The submitted fields are invalid.";
   } else if (typeof error === "object" && error !== null) {
     const failure = error as { code?: unknown; type?: unknown };
     const database = postgresFailure(error);

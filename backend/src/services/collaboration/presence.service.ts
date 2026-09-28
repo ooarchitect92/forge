@@ -1,257 +1,143 @@
 import { WebSocketServer, WebSocket } from "ws";
-import type { Server as HttpServer } from "http";
+import type { Server as HttpServer, IncomingMessage } from "node:http";
+import { randomUUID } from "node:crypto";
+import { z } from "zod";
+import { AUTH_COOKIE_NAME, browserOrigin } from "../../config/auth.js";
+import { authenticateSession } from "../session-authentication.js";
+import { canReadWebsitePresence } from "../websites/scoped-access.js";
 
-export interface PeerUser {
-  userId: string;
-  name: string;
-  email?: string;
-  avatar?: string;
-  color: string;
-}
-
+export interface PeerUser { userId: string; name: string; color: string }
 export interface PeerState {
-  socketId: string;
-  user: PeerUser;
-  websiteId: string;
-  cursor?: { x: number; y: number };
-  selectedElementId?: string | null;
-  lastSeen: number;
+  socketId: string; user: PeerUser; websiteId: string;
+  cursor?: { x: number; y: number }; selectedElementId?: string | null; lastSeen: number;
 }
-
-interface Room {
-  peers: Map<WebSocket, PeerState>;
+type Principal = { id: string; user: { id: string; fullName: string | null }; expiresAt: Date };
+type Dependencies = {
+  authenticate: (token: unknown) => Promise<Principal | null>;
+  canRead: (site: string, actor: string) => Promise<boolean>;
+  origin: () => string;
+};
+const messageSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("JOIN"), websiteId: z.uuid(), user: z.unknown().optional() }).strict(),
+  z.object({ type: z.literal("CURSOR"), cursor: z.object({ x: z.number().finite().min(-100000).max(100000), y: z.number().finite().min(-100000).max(100000) }).strict() }).strict(),
+  z.object({ type: z.literal("SELECT"), elementId: z.string().max(128).nullable() }).strict(),
+  z.object({ type: z.literal("PING") }).strict(),
+]);
+let observed = { connections: 0, rooms: 0 };
+export function getPresenceRoomsSummary() { return { ...observed }; }
+function sessionCookie(request: IncomingMessage): string | null {
+  const matches = (request.headers.cookie ?? "").split(";").map(v => v.trim()).filter(v => v.startsWith(`${AUTH_COOKIE_NAME}=`));
+  if (matches.length !== 1) return null;
+  try { return decodeURIComponent(matches[0].slice(AUTH_COOKIE_NAME.length + 1)); } catch { return null; }
 }
-
-const rooms = new Map<string, Room>();
-
-const PALETTE = [
-  "#10b981", // emerald
-  "#3b82f6", // blue
-  "#8b5cf6", // purple
-  "#f59e0b", // amber
-  "#ec4899", // pink
-  "#06b6d4", // cyan
-  "#f97316", // orange
-];
-
-function pickColor(seed: string): string {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) {
-    hash = (hash << 5) - hash + seed.charCodeAt(i);
+export function initPresenceWebSocketServer(server: HttpServer, deps: Dependencies = {
+  authenticate: authenticateSession, canRead: canReadWebsitePresence, origin: browserOrigin,
+}) {
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 8192, perMessageDeflate: false });
+  const peers = new Map<WebSocket, { principal: Principal; token: string; state: PeerState | null;
+    verifiedAt: number; busy: boolean; lastSeen: number; windowAt: number; messages: number; joins: number }>();
+  const rooms = new Map<string, Set<WebSocket>>();
+  let pending = 0;
+  const observe = () => { observed = { connections: peers.size, rooms: rooms.size }; };
+  function send(ws: WebSocket, payload: object) {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    if (ws.bufferedAmount > 65536) { ws.terminate(); return; }
+    ws.send(JSON.stringify(payload));
   }
-  return PALETTE[Math.abs(hash) % PALETTE.length];
-}
-
-function broadcastToRoom(websiteId: string, message: any, excludeWs?: WebSocket) {
-  const room = rooms.get(websiteId);
-  if (!room) return;
-  const payload = JSON.stringify(message);
-
-  for (const [ws, state] of room.peers.entries()) {
-    if (ws !== excludeWs && ws.readyState === WebSocket.OPEN) {
-      try {
-        ws.send(payload);
-      } catch (err) {
-        console.warn(`[PresenceWS] Error sending to socket ${state.socketId}:`, err);
-      }
+  function broadcast(site: string, payload: object, except?: WebSocket) {
+    for (const ws of rooms.get(site) ?? []) {
+      const p = peers.get(ws);
+      if (ws !== except && p && Date.now() - p.verifiedAt <= 10_000) send(ws, payload);
     }
   }
-}
-
-/**
- * Initializes the WebSocket presence server mounted on the HTTP server.
- */
-export function initPresenceWebSocketServer(server: HttpServer) {
-  const wss = new WebSocketServer({ noServer: true });
-
-  server.on("upgrade", (request, socket, head) => {
-    const { pathname } = new URL(request.url || "", `http://${request.headers.host}`);
-    if (pathname === "/ws/presence" || pathname === "/ws/collaboration") {
-      wss.handleUpgrade(request, socket, head, (ws) => {
-        wss.emit("connection", ws, request);
-      });
-    }
-  });
-
-  wss.on("connection", (ws: WebSocket) => {
-    let currentWebsiteId: string | null = null;
-    let socketId = `sock_${Math.random().toString(36).slice(2, 9)}`;
-
-    ws.on("message", (raw) => {
+  function leave(ws: WebSocket) {
+    const p = peers.get(ws); if (!p?.state) return;
+    const { websiteId, socketId } = p.state; p.state = null;
+    const room = rooms.get(websiteId); room?.delete(ws);
+    if (!room?.size) rooms.delete(websiteId);
+    broadcast(websiteId, { type: "PEER_LEFT", socketId }); observe();
+  }
+  function attach(ws: WebSocket, principal: Principal, token: string) {
+    const socketId = randomUUID();
+    const p = { principal, token, state: null as PeerState | null, verifiedAt: 0, busy: false,
+      lastSeen: Date.now(), windowAt: Date.now(), messages: 0, joins: 0 };
+    peers.set(ws, p); observe();
+    const cleanup = () => { leave(ws); peers.delete(ws); observe(); };
+    ws.on("close", cleanup); ws.on("error", cleanup);
+    ws.on("message", async raw => {
+      const now = Date.now();
+      if (now - p.windowAt >= 1000) { p.messages = 0; p.windowAt = now; }
+      if (++p.messages > 30) { ws.close(1008, "Message limit exceeded"); return; }
+      const parsed = (() => { try { return messageSchema.safeParse(JSON.parse(raw.toString())); } catch { return null; } })();
+      if (!parsed?.success) { ws.close(1008, "Invalid presence message"); return; }
+      if (p.busy) return; // Drop expendable presence frames rather than queue work during revalidation.
+      p.lastSeen = now; const msg = parsed.data;
       try {
-        const msg = JSON.parse(raw.toString());
-
-        switch (msg.type) {
-          case "JOIN": {
-            const { websiteId, user } = msg;
-            if (!websiteId || !user) return;
-
-            currentWebsiteId = websiteId;
-            if (!rooms.has(websiteId)) {
-              rooms.set(websiteId, { peers: new Map() });
-            }
-
-            const room = rooms.get(websiteId)!;
-            const peerColor = user.color || pickColor(user.id || user.name || socketId);
-            const peerState: PeerState = {
-              socketId,
-              user: {
-                userId: user.id || socketId,
-                name: user.name || "Collaborator",
-                email: user.email,
-                avatar: user.avatar,
-                color: peerColor,
-              },
-              websiteId,
-              lastSeen: Date.now(),
-            };
-
-            room.peers.set(ws, peerState);
-
-            // Send full room state to the newly joined peer
-            const existingPeers = Array.from(room.peers.values()).map((p) => ({
-              socketId: p.socketId,
-              user: p.user,
-              cursor: p.cursor,
-              selectedElementId: p.selectedElementId,
-            }));
-
-            ws.send(
-              JSON.stringify({
-                type: "SYNC",
-                selfSocketId: socketId,
-                peers: existingPeers,
-              })
-            );
-
-            // Broadcast join event to all other peers in the room
-            broadcastToRoom(
-              websiteId,
-              {
-                type: "PEER_JOINED",
-                peer: {
-                  socketId,
-                  user: peerState.user,
-                  selectedElementId: null,
-                },
-              },
-              ws
-            );
-            break;
+        if (msg.type === "JOIN") {
+          if (++p.joins > 20) { ws.close(1008, "Join limit exceeded"); return; }
+          leave(ws); p.busy = true;
+          const current = await deps.authenticate(token);
+          if (!current || current.id !== principal.id || !await deps.canRead(msg.websiteId, current.user.id)) {
+            ws.close(1008, "Access denied"); return;
           }
-
-          case "CURSOR": {
-            if (!currentWebsiteId) return;
-            const room = rooms.get(currentWebsiteId);
-            if (!room) return;
-            const peer = room.peers.get(ws);
-            if (!peer) return;
-
-            peer.cursor = msg.cursor;
-            peer.lastSeen = Date.now();
-
-            broadcastToRoom(
-              currentWebsiteId,
-              {
-                type: "PEER_CURSOR",
-                socketId,
-                cursor: msg.cursor,
-              },
-              ws
-            );
-            break;
-          }
-
-          case "SELECT": {
-            if (!currentWebsiteId) return;
-            const room = rooms.get(currentWebsiteId);
-            if (!room) return;
-            const peer = room.peers.get(ws);
-            if (!peer) return;
-
-            peer.selectedElementId = msg.elementId;
-            peer.lastSeen = Date.now();
-
-            broadcastToRoom(
-              currentWebsiteId,
-              {
-                type: "PEER_SELECT",
-                socketId,
-                elementId: msg.elementId,
-              },
-              ws
-            );
-            break;
-          }
-
-          case "PING": {
-            if (currentWebsiteId) {
-              const room = rooms.get(currentWebsiteId);
-              const peer = room?.peers.get(ws);
-              if (peer) peer.lastSeen = Date.now();
-            }
-            ws.send(JSON.stringify({ type: "PONG" }));
-            break;
+          if (ws.readyState !== WebSocket.OPEN || !peers.has(ws)) return;
+          if ((rooms.get(msg.websiteId)?.size ?? 0) >= 100) { ws.close(1013, "Room capacity reached"); return; }
+          p.verifiedAt = Date.now();
+          // Client-supplied name, identity and role are deliberately ignored.
+          p.state = { socketId, websiteId: msg.websiteId,
+            user: { userId: current.user.id, name: current.user.fullName?.slice(0,120) || "Collaborator", color: "#3b82f6" }, lastSeen: now };
+          if (!rooms.has(msg.websiteId)) rooms.set(msg.websiteId, new Set());
+          rooms.get(msg.websiteId)!.add(ws); observe();
+          const active = [...rooms.get(msg.websiteId)!].flatMap(s => {
+            const peer = peers.get(s); return peer?.state && Date.now() - peer.verifiedAt <= 10_000 ? [peer.state] : [];
+          });
+          send(ws, { type: "SYNC", selfSocketId: socketId, peers: active });
+          broadcast(msg.websiteId, { type: "PEER_JOINED", peer: p.state }, ws);
+        } else if (msg.type === "PING") {
+          send(ws, { type: "PONG" });
+        } else if (p.state && now - p.verifiedAt <= 10_000) {
+          if (msg.type === "CURSOR") {
+            p.state.cursor = msg.cursor; broadcast(p.state.websiteId, { type: "PEER_CURSOR", socketId, cursor: msg.cursor }, ws);
+          } else {
+            p.state.selectedElementId = msg.elementId;
+            broadcast(p.state.websiteId, { type: "PEER_SELECT", socketId, elementId: msg.elementId }, ws);
           }
         }
-      } catch (err) {
-        console.warn("[PresenceWS] Invalid message:", err);
-      }
+      } catch { ws.close(1008, "Access unavailable"); }
+      finally { p.busy = false; }
     });
-
-    const cleanup = () => {
-      if (currentWebsiteId && rooms.has(currentWebsiteId)) {
-        const room = rooms.get(currentWebsiteId)!;
-        room.peers.delete(ws);
-
-        broadcastToRoom(currentWebsiteId, {
-          type: "PEER_LEFT",
-          socketId,
-        });
-
-        if (room.peers.size === 0) {
-          rooms.delete(currentWebsiteId);
-        }
-      }
-    };
-
-    ws.on("close", cleanup);
-    ws.on("error", cleanup);
-  });
-
-  // Stale connection reaper (runs every 30s)
-  const reaper = setInterval(() => {
-    const now = Date.now();
-    for (const [websiteId, room] of rooms.entries()) {
-      for (const [ws, peer] of room.peers.entries()) {
-        if (now - peer.lastSeen > 45000) {
-          try {
-            ws.terminate();
-          } catch {}
-          room.peers.delete(ws);
-          broadcastToRoom(websiteId, { type: "PEER_LEFT", socketId: peer.socketId });
-        }
-      }
-      if (room.peers.size === 0) {
-        rooms.delete(websiteId);
-      }
-    }
-  }, 30000);
-  reaper.unref();
-
-  return wss;
-}
-
-/**
- * Returns diagnostic summary of active real-time presence rooms.
- */
-export function getPresenceRoomsSummary() {
-  const summary: Record<string, { peerCount: number; users: string[] }> = {};
-  for (const [websiteId, room] of rooms.entries()) {
-    summary[websiteId] = {
-      peerCount: room.peers.size,
-      users: Array.from(room.peers.values()).map((p) => p.user.name),
-    };
   }
-  return summary;
+  const upgrade = async (request: IncomingMessage, socket: import("node:stream").Duplex, head: Buffer) => {
+    const reject = (status = 401) => { if (!socket.destroyed) socket.end(`HTTP/1.1 ${status} Rejected\r\nConnection: close\r\n\r\n`); };
+    try {
+      if ((request.url?.length ?? 0) > 2048 || request.method !== "GET") return reject(400);
+      const path = new URL(request.url ?? "", "http://presence.invalid").pathname;
+      if (!["/ws/presence", "/ws/collaboration"].includes(path)) return reject(404);
+      if (request.headers.origin !== deps.origin()) return reject(403);
+      if (pending >= 16 || peers.size + pending >= 1000) return reject(503);
+      const token = sessionCookie(request); if (!token) return reject();
+      pending++; const timer = setTimeout(() => socket.destroy(), 2500);
+      try {
+        const principal = await deps.authenticate(token);
+        if (!principal || socket.destroyed) return reject();
+        if ([...peers.values()].filter(p => p.principal.user.id === principal.user.id).length >= 8) return reject(429);
+        wss.handleUpgrade(request, socket, head, ws => attach(ws, principal, token));
+      } finally { pending--; clearTimeout(timer); }
+    } catch { reject(); }
+  };
+  server.on("upgrade", upgrade);
+  const timer = setInterval(() => {
+    for (const [ws, p] of peers) {
+      if (Date.now() - p.lastSeen > 45000 || p.principal.expiresAt.getTime() <= Date.now()) { ws.terminate(); continue; }
+      if (!p.state || p.busy || Date.now() - p.verifiedAt < 5000) continue;
+      p.busy = true; const site = p.state.websiteId;
+      void deps.authenticate(p.token).then(async current => {
+        if (!current || current.id !== p.principal.id || !await deps.canRead(site, current.user.id)) { ws.close(1008, "Access revoked"); return; }
+        if (p.state?.websiteId === site) p.verifiedAt = Date.now();
+      }).catch(() => ws.close(1008, "Access unavailable")).finally(() => { p.busy = false; });
+    }
+  }, 1000);
+  timer.unref();
+  wss.on("close", () => { clearInterval(timer); server.off("upgrade", upgrade); peers.clear(); rooms.clear(); observe(); });
+  return wss;
 }

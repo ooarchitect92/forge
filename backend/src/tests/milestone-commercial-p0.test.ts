@@ -59,7 +59,7 @@ async function runCommercialP0Tests() {
     const adminTokenHash = crypto.createHash("sha256").update(adminRawToken).digest("hex");
 
     await db.session.create({
-      data: {
+      data: { authEpoch: 1, authMethod: "local", authTime: new Date(), audience: "TENANT",
         userId: normalUser.id,
         tokenHash: normalTokenHash,
         expiresAt: new Date(Date.now() + 3600000),
@@ -67,7 +67,7 @@ async function runCommercialP0Tests() {
     });
 
     await db.session.create({
-      data: {
+      data: { authEpoch: 1, authMethod: "local", authTime: new Date(), audience: "TENANT",
         userId: adminUser.id,
         tokenHash: adminTokenHash,
         expiresAt: new Date(Date.now() + 3600000),

@@ -30,7 +30,7 @@ try {
     }});
     await prisma.userSubscription.create({ data: {userId: user.id, planId: plan.id, status: "ACTIVE"} });
     const token = randomBytes(32).toString("hex");
-    await prisma.session.create({ data: {userId: user.id,
+    await prisma.session.create({ data: { authEpoch: 1, authMethod: "local", authTime: new Date(), audience: "TENANT",userId: user.id,
       tokenHash: createHash("sha256").update(token).digest("hex"),
       expiresAt: new Date(Date.now() + 30 * 60_000),
     }});

@@ -86,3 +86,13 @@ export async function listScopedOwnedWebsites(actorId: string) {
     });
   });
 }
+
+/** Presence reveals collaborators, so it uses the same view boundary as document reads. */
+export async function canReadWebsitePresence(websiteId: string, actorId: string): Promise<boolean> {
+  return prisma.$transaction(async tx => {
+    await requireActiveActor(tx, actorId);
+    const row = await tx.website.findUnique({ where: { id: websiteId },
+      select: { userId: true, organizationId: true, workspaceId: true, ...scopeRelations(actorId) } });
+    return !!row && resolveWebsiteRole(row, actorId) !== null;
+  });
+}

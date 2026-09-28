@@ -21,5 +21,9 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22.16.0'
+      - name: Install locked pure validation and compiler dependencies
+        run: |
+          npm ci --prefix backend --ignore-scripts
+          npm ci --prefix frontend --ignore-scripts
       - name: Test real source with explicit dependency doubles
         run: node --experimental-vm-modules --test tests/hardening/*.test.mjs

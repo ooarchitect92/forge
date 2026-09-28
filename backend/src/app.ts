@@ -3,7 +3,7 @@ import express, { type Request, type Response } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
-import passport from "./config/passport.js";
+import { protectCookieMutations } from "./middlewares/browser-origin.js";
 
 import {
   loginRoutes,
@@ -46,6 +46,7 @@ import {
   exportRoutes,
 } from "./routes/index.js";
 
+import identityRoutes from "./modules/identity/http/oidc.routes.js";
 import apiV1Routes from "./routes/api-v1.routes.js";
 import tenantWorkspaceRoutes from "./routes/tenant-workspace.routes.js";
 import operationsRoutes from "./routes/operations.routes.js";
@@ -73,6 +74,12 @@ const authRateLimiter = rateLimit({
   },
 });
 
+/** Composition boundary: tests can supply a delivery-backed identity router without
+ * changing any production route or enabling a bypass through configuration. */
+export function createApplication(
+  localIdentityRouter: express.Router = loginRoutes,
+  managedIdentityRouter: express.Router = identityRoutes,
+) {
 const app = express();
 
 app.use(
@@ -91,10 +98,12 @@ app.use(
 );
 
 const jsonBodyLimit = process.env.JSON_BODY_LIMIT || "10mb";
+app.use(["/api/v1/auth", "/api/auth"], (_req, res, next) => { res.setHeader("Cache-Control", "no-store"); next(); },
+  express.json({ limit: "16kb" }));
 app.use(express.json({ limit: jsonBodyLimit }));
 app.use(express.urlencoded({ extended: true, limit: jsonBodyLimit }));
 app.use(cookieParser());
-app.use(passport.initialize());
+app.use(protectCookieMutations);
 
 
 app.get("/api/v1/health", (_req: Request, res: Response) => {
@@ -111,7 +120,8 @@ app.use("/api/v1/auth/signup", authRateLimiter);
 app.use("/api/auth/signup", authRateLimiter);
 
 // Auth & Session
-app.use("/api/v1/auth", loginRoutes);
+app.use("/api/v1/auth", managedIdentityRouter);
+app.use("/api/v1/auth", localIdentityRouter);
 app.use("/api/v1/auth", signupRoutes);
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/auth", authRoutes);
@@ -255,4 +265,7 @@ app.use("/api", healthRoutes);
 
 app.use(errorMiddleware);
 
-export default app;
+return app;
+}
+
+export default createApplication();

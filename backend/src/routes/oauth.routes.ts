@@ -1,76 +1,11 @@
 import { Router } from "express";
-import passport from "../config/passport.js";
-
-import {
-  googleOAuthCallback,
-  githubOAuthCallback,
-  createOAuthPasswordController,
-} from "../controllers/oauth.controller.js";
-
+import { createOAuthPasswordController } from "../controllers/oauth.controller.js";
 import { logout } from "../controllers/auth.controller.js";
-
+import { requireBrowserOrigin } from "../middlewares/browser-origin.js";
+import { AppError } from "../utils/app-error.js";
 const router = Router();
-
-// =========================
-// Create Password for OAuth
-// =========================
-
-router.post(
-  "/create-password",
-  createOAuthPasswordController
-);
-
-// =========================
-// Google OAuth
-// =========================
-
-router.get(
-  "/google",
-  passport.authenticate("google", {
-    scope: ["profile", "email"],
-    session: false,
-  })
-);
-
-router.get(
-  "/google/callback",
-  passport.authenticate("google", {
-    session: false,
-    failureRedirect:
-      `${process.env.FRONTEND_URL}/login?error=google_auth_failed`,
-  }),
-  googleOAuthCallback
-);
-
-// =========================
-// GitHub OAuth
-// =========================
-
-router.get(
-  "/github",
-  passport.authenticate("github", {
-    scope: ["user:email"],
-    session: false,
-  })
-);
-
-router.get(
-  "/github/callback",
-  passport.authenticate("github", {
-    session: false,
-    failureRedirect:
-      `${process.env.FRONTEND_URL}/login?error=github_auth_failed`,
-  }),
-  githubOAuthCallback
-);
-
-// =========================
-// Logout
-// =========================
-
-router.post(
-  "/logout",
-  logout
-);
-
+router.post("/create-password", requireBrowserOrigin, createOAuthPasswordController);
+router.get(["/google", "/github", "/google/callback", "/github/callback"], (_req, _res, next) =>
+  next(new AppError("Select managed sign-in. Social providers are configured at the identity provider.", 410, "LEGACY_OAUTH_RETIRED")));
+router.post("/logout", requireBrowserOrigin, logout);
 export default router;

@@ -4,6 +4,9 @@ import app from "./app.js";
 import { startScheduler } from "./services/scheduleWorker.js";
 import { initPresenceWebSocketServer } from "./services/collaboration/presence.service.js";
 
+import { validateIdentityConfiguration } from "./modules/identity/composition.js";
+validateIdentityConfiguration();
+
 const PORT = process.env.PORT || 5000;
 
 const server = http.createServer(app);

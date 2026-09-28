@@ -11,7 +11,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
  * Unmocked package imports fail rather than connecting to a real service.
  */
 export async function loadTypeScript(relativePath, mocks = {}, globals = {}) {
-  const context = createContext({ console, Buffer, URL, TextEncoder, TextDecoder, ...globals });
+  const context = createContext({ console, Buffer, URL, TextEncoder, TextDecoder, process: { env: { NODE_ENV: "test" } }, ...globals });
   const modules = new Map();
 
   function synthetic(key, values) {
@@ -41,6 +41,7 @@ export async function loadTypeScript(relativePath, mocks = {}, globals = {}) {
     if (specifier.startsWith('node:') || specifier === 'crypto') {
       return synthetic(specifier, await import(specifier));
     }
+    if (specifier === 'zod') return synthetic(specifier, await import('../../backend/node_modules/zod/index.js'));
     if (!specifier.startsWith('.')) throw new Error(`Unmocked package import: ${specifier}`);
     return source(resolve(dirname(parent.identifier), specifier));
   });

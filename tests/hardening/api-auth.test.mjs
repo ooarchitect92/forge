@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { loadTypeScript } from './load-typescript.mjs';
 
 async function fixture({ status = 'ACTIVE', apiKey = false, failure = false, revoked = false } = {}) {
-  const calls = []; const user = { id: 'user', status };
-  const session = { id: 'session', user, expiresAt: new Date(Date.now()+60000), revokedAt: null, lastUsedAt: new Date() };
+  const calls = []; const user = { id: 'user', status, authEpoch: 1 };
+  const session = { id: 'session', user, authEpoch: 1, authMethod: 'local', audience: 'TENANT', authTime: new Date(), expiresAt: new Date(Date.now()+60000), revokedAt: null, lastUsedAt: new Date() };
   const prisma = { session: { findUnique: async () => { if(failure) throw new Error('private database detail'); return session; } } };
   const service = await loadTypeScript('backend/src/middlewares/api-v1.auth.ts', {
     '../config/prisma.js': { prisma }, '../config/auth.js': { AUTH_COOKIE_NAME: 'forge_session' },

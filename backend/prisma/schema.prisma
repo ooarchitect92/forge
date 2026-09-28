@@ -12,6 +12,7 @@ model User {
   fullName            String?
   email               String?              @unique
   phone               String?              @unique
+  authEpoch           Int                  @default(1)
   passwordHash        String?
   verificationMethod  VerificationMethod?
   emailVerified       Boolean              @default(false)
@@ -25,6 +26,8 @@ model User {
   otpVerifications    OtpVerification[]
   passwordResetTokens PasswordResetToken[]
   sessions            Session[]
+  authChallenges      AuthChallenge[]
+  oidcIdentities      OidcIdentity[]
   templates           templates[]
   subscription        UserSubscription?
   websites            Website[]
@@ -141,7 +144,56 @@ model Identity {
   @@map("identities")
 }
 
+model AuthChallenge {
+  id                  String   @id @default(uuid()) @db.Uuid
+  userId              String?  @db.Uuid
+  kind                String
+  secretHash          String   @unique
+  authEpoch           Int      @default(0)
+  status              String   @default("PENDING")
+  email               String?
+  otpHash             String?
+  attempts            Int      @default(0)
+  expiresAt           DateTime
+  lastSentAt          DateTime?
+  createdAt           DateTime @default(now())
+  providerKey         String?
+  initiatingSessionId String?  @db.Uuid
+  user                User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, createdAt])
+  @@index([expiresAt])
+  @@map("auth_challenges")
+}
+
+model IdentityRateBucket {
+  key         String
+  windowStart DateTime
+  attempts    Int
+  expiresAt   DateTime
+  @@id([key, windowStart])
+  @@index([expiresAt])
+  @@map("identity_rate_buckets")
+}
+
+model OidcIdentity {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  issuer    String
+  subject   String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([issuer, subject])
+  @@unique([userId, issuer])
+  @@map("oidc_identities")
+}
+
 model Session {
+  authEpoch     Int       @default(0)
+  authMethod    String    @default("legacy")
+  audience      String    @default("TENANT")
+  authTime      DateTime?
+  assurance     String    @default("none")
+  mfaVerifiedAt DateTime?
   id         String    @id @default(uuid()) @db.Uuid
   userId     String    @db.Uuid
   tokenHash  String    @unique

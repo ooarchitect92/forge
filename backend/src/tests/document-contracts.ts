@@ -98,7 +98,7 @@ export async function runDocumentContracts(t: TestContext) {
     assert.equal((await pgPool.query('SELECT count(*)::int AS n FROM workspace_command_journal WHERE "idempotencyKey"=$1',[commandKey])).rows[0].n,0);
   });
   await t.test('document HTTP contract enforces explicit intent, ETag, idempotency and strict input',async()=>{
-    const token=randomUUID();await prisma.session.create({data:{userId:owner.id,tokenHash:createHash('sha256').update(token).digest('hex'),expiresAt:new Date(Date.now()+60000)}});
+    const token=randomUUID();await prisma.session.create({data:{ authEpoch: 1, authMethod: "local", authTime: new Date(), audience: "TENANT",userId:owner.id,tokenHash:createHash('sha256').update(token).digest('hex'),expiresAt:new Date(Date.now()+60000)}});
     const app=express();app.use(express.json({limit:'4mb'}),cookieParser(),requireAuth);
     app.get('/api/websites/:id',getWebsiteByIdHandler);app.put('/api/websites/:id',updateWebsiteHandler);app.use(errorMiddleware);
     const server=app.listen(0,'127.0.0.1');await new Promise<void>(resolve=>server.once('listening',resolve));const address=server.address();assert.ok(address && typeof address!=='string');

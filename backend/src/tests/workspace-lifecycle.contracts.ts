@@ -81,7 +81,7 @@ export async function runWorkspaceLifecycleContracts(t:TestContext) {
   await assert.rejects(prisma.website.create({data:{userId:owner.id,organizationId:null,workspaceId,name:"Wrong tenant",slug:`wrong-${randomUUID()}`}}));
  });
  await t.test("lifecycle HTTP replacements require exact scoped If-Match",async()=>{
-  const token=randomUUID();await prisma.session.create({data:{userId:recipient.id,tokenHash:createHash("sha256").update(token).digest("hex"),expiresAt:new Date(Date.now()+60000)}});
+  const token=randomUUID();await prisma.session.create({data:{ authEpoch: 1, authMethod: "local", authTime: new Date(), audience: "TENANT",userId:recipient.id,tokenHash:createHash("sha256").update(token).digest("hex"),expiresAt:new Date(Date.now()+60000)}});
   const app=express();app.use(express.json(),cookieParser());app.use("/api/v1/tenant-workspaces",workspaceRouter);app.use(errorMiddleware);
   const server=app.listen(0,"127.0.0.1");await new Promise<void>(resolve=>server.once("listening",resolve));const address=server.address();assert.ok(address&&typeof address!=="string");
   const base=`http://127.0.0.1:${address.port}/api/v1/tenant-workspaces`;
