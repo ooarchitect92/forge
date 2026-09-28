@@ -6,6 +6,11 @@ import { workspaceCommand } from "./command.js";
 import { boundedName, managerRoles, memberRole, requireActiveActor, requireOrganization, requireWorkspace } from "./access.js";
 import type { WorkspaceTransaction } from "./access.js";
 
+export type WorkspaceCreated = {
+  resourceId: string;
+  workspace: { id: string; name: string; slug: string; organizationId: string | null; userRole: string };
+};
+
 const safeWebsiteFields = { id: true, name: true, slug: true, status: true, createdAt: true, updatedAt: true } as const;
 
 async function creationScope(tx: WorkspaceTransaction, actorId: string, requestedOrganizationId?: string) {
@@ -32,7 +37,7 @@ async function creationScope(tx: WorkspaceTransaction, actorId: string, requeste
 
 export async function createTenantWorkspace(actorId: string, input: { name: string; organizationId?: string }, key: string) {
   const name = boundedName(input.name, "Workspace name");
-  return workspaceCommand({ actorId, key, operation: "WORKSPACE_CREATED", payload: { name, organizationId: input.organizationId ?? null },
+  return workspaceCommand<{ organizationId: string }, WorkspaceCreated>({ actorId, key, operation: "WORKSPACE_CREATED", payload: { name, organizationId: input.organizationId ?? null },
     authorize: (tx) => creationScope(tx, actorId, input.organizationId),
     authorizeReplay: async (tx, result) => { await requireWorkspace(tx, result.resourceId, actorId); },
     execute: async (tx, context) => {
