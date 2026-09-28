@@ -29,3 +29,4 @@ test('FG-003: network failure does not become local-save success',async()=>{
 test('FG-003: acknowledgement must reference the saved site',async()=>{
  const {saveAuthorizedWebsite}=await loadTypeScript('frontend/src/features/editor-access/save-authorized-website.ts',{}, {AbortSignal,fetch:async()=>({ok:true,json:async()=>({website:{id:'other'}})})});
  await assert.rejects(saveAuthorizedWebsite('https://example.test','site',{editorData:{}}),/acknowledgement/);
+});

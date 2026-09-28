@@ -6,7 +6,7 @@ on:
       - scripts/maintenance/prepare-workspace-integration.mjs
       - scripts/maintenance/workspace-integration.patch.json
       - .github/workflows/prepare-workspace-integration.yml
-      - backend/package.json
+      - tests/hardening/**
   workflow_dispatch:
 permissions:
   contents: read
