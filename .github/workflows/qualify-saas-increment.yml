@@ -1,0 +1,103 @@
+name: Qualify reviewed SaaS increment
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/maintenance/active-increment.json
+      - scripts/maintenance/qualify-increment.mjs
+      - .github/workflows/qualify-saas-increment.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:15-alpine@sha256:f7d23353e1b15400d22ebe31189f4d314b87a4c129cc400c8c2d8d4ca127bf81
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: disposable_fixture_only
+          POSTGRES_DB: forge_hardening
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:disposable_fixture_only@127.0.0.1:5432/forge_hardening
+      FORGE_DISPOSABLE_TEST_DB: '1'
+      NODE_ENV: test
+      FRONTEND_URL: http://localhost:5173
+      PORT: '5000'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+      - name: Stage only hash-bound reviewed replacements
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/maintenance/qualify-increment.mjs stage
+      - name: Install and compile both applications
+        run: |
+          npm ci --prefix backend
+          npm ci --prefix frontend
+          npm run build --prefix backend 2>&1 | tee "$RUNNER_TEMP/backend-build.log"
+          npm run build --prefix frontend 2>&1 | tee "$RUNNER_TEMP/frontend-build.log"
+      - name: Execute source-unit checks
+        run: node --experimental-vm-modules --test tests/hardening/*.test.mjs 2>&1 | tee "$RUNNER_TEMP/source-unit.tap"
+      - name: Exercise actual migrations and PostgreSQL HTTP contracts
+        working-directory: backend
+        run: |
+          npx --no-install prisma db push
+          node --test dist/tests/workspace-integration.test.js 2>&1 | tee "$RUNNER_TEMP/workspace-contracts.tap"
+      - name: Prepare separate disposable browser database
+        env:
+          DATABASE_URL: postgresql://postgres:disposable_fixture_only@127.0.0.1:5432/forge_browser
+          PGPASSWORD: disposable_fixture_only
+          FORGE_BROWSER_FIXTURE_PATH: ${{ runner.temp }}/workspace-fixture.json
+        run: |
+          createdb -h 127.0.0.1 -U postgres forge_browser
+          (cd backend && npx --no-install prisma db push)
+          (cd backend && node dist/tests/fixtures/workspace-browser-fixture.js)
+          python3 -m venv "$RUNNER_TEMP/browser-venv"
+          "$RUNNER_TEMP/browser-venv/bin/pip" install playwright==1.57.0
+      - name: Execute compiled browser journey without mocked requests
+        env:
+          DATABASE_URL: postgresql://postgres:disposable_fixture_only@127.0.0.1:5432/forge_browser
+          FORGE_BROWSER_FIXTURE_PATH: ${{ runner.temp }}/workspace-fixture.json
+          FORGE_BROWSER_REPORT_DIR: ${{ runner.temp }}/browser-report
+        run: |
+          (cd backend && node dist/server.js) > "$RUNNER_TEMP/browser-api.log" 2>&1 &
+          api_pid=$!
+          (cd frontend && node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 5173) > "$RUNNER_TEMP/browser-ui.log" 2>&1 &
+          ui_pid=$!
+          trap 'kill "$api_pid" "$ui_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --max-time 2 http://localhost:5000/api/v1/health >/dev/null && curl --fail --silent --max-time 2 http://localhost:5173 >/dev/null; then ready=1; break; fi
+            sleep 1
+          done
+          test "$ready" = 1
+          "$RUNNER_TEMP/browser-venv/bin/python" tests/browser/workspace-journey.py
+      - name: Export tested blobs without changing any branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/maintenance/qualify-increment.mjs export
+      - name: Retain qualification evidence including failures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qualified-increment-${{ github.sha }}
+          path: |
+            qualified-increment.json
+            ${{ runner.temp }}/backend-build.log
+            ${{ runner.temp }}/frontend-build.log
+            ${{ runner.temp }}/source-unit.tap
+            ${{ runner.temp }}/workspace-contracts.tap
+            ${{ runner.temp }}/browser-report/
+            ${{ runner.temp }}/browser-api.log
+            ${{ runner.temp }}/browser-ui.log
+          retention-days: 7
+          if-no-files-found: warn

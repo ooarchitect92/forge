@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "repository": "ooarchitect92/forge",
+  "name": "workspace-lifecycle",
+  "parts": [
+    "53648df1e0612c6b721cf27f8c24b48abed4c7d8",
+    "cf0432e2f3870d37e2db5a06c3f41cb4d7d7a08b",
+    "c7f8dfc9f96855f2f6beb4b0f79921fec8e2c927",
+    "1209bdb3858e16ebb0353d8f2e3cdaa5cd704800"
+  ],
+  "sha256": "550fab9d8af2ef168f6b6e0b6875cc3641a0370b225ef1259f299f25d5697d70"
+}
