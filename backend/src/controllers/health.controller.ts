@@ -13,7 +13,7 @@ export function livenessCheck(_req: Request, res: Response) {
  */
 export async function healthCheck(_req: Request, res: Response) {
   try {
-    await pgPool.query({ text: "SELECT 1", query_timeout: 1500 });
+    await pgPool.query({ text: "SELECT 1" });
     return res.status(200).json({ status: "ok", scope: "database-connectivity", timestamp: new Date().toISOString() });
   } catch {
     return res.status(503).json({ status: "down", scope: "database-connectivity", timestamp: new Date().toISOString() });
@@ -27,7 +27,6 @@ export async function prismaMigrationStatus(_req: Request, res: Response) {
   try {
     const { rows } = await pgPool.query({
       text: 'SELECT migration_name, finished_at, rolled_back_at, started_at, applied_steps_count FROM _prisma_migrations ORDER BY started_at DESC LIMIT 200',
-      query_timeout: 1500,
     });
     return res.status(200).json({ success: true, migrations: rows, boundedLimit: 200, readOnly: true });
   } catch {

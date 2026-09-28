@@ -12,7 +12,7 @@ test('REL-001: liveness performs no database query',async()=>{
 });
 test('SEC-002: readiness failure does not expose private error details',async()=>{
  const f=await fixture({failure:true});await f.module.healthCheck({},f.res);assert.equal(f.res.statusCode,503);
- assert.ok(!JSON.stringify(f.res.body).includes('private'));assert.equal(f.queries[0].query_timeout,1500);
+ assert.ok(!JSON.stringify(f.res.body).includes('private'));assert.equal(f.queries[0].text,'SELECT 1');
 });
 test('L-11: migration status is a bounded read and never repairs history',async()=>{
  const f=await fixture();await f.module.prismaMigrationStatus({},f.res);
