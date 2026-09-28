@@ -21,7 +21,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd 'pg_isready -U postgres -d forge_hardening'
+          --health-cmd pg_isready
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       DATABASE_URL: postgresql://postgres:disposable_fixture_only@127.0.0.1:5432/forge_hardening
