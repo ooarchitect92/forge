@@ -10,8 +10,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
  * These are isolated unit tests, not database, HTTP or production certification.
  * Unmocked package imports fail rather than connecting to a real service.
  */
-export async function loadTypeScript(relativePath, mocks = {}) {
-  const context = createContext({ console, Buffer, URL, TextEncoder, TextDecoder });
+export async function loadTypeScript(relativePath, mocks = {}, globals = {}) {
+  const context = createContext({ console, Buffer, URL, TextEncoder, TextDecoder, ...globals });
   const modules = new Map();
 
   function synthetic(key, values) {
