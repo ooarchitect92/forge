@@ -125,6 +125,12 @@ with sync_playwright() as playwright:
         # A second tab loads a version, then a real independent command commits.
         # The stale tab must display a conflict, not silently overwrite that edit.
         stale = owner_context.new_page()
+        stale_writes = []
+        def observe_stale_save(response):
+            if response.request.method == "PUT" and response.url.endswith("/api/websites/" + website_id):
+                # Status only: no credentials, documents or response bodies.
+                stale_writes.append(response.status)
+        stale.on("response", observe_stale_save)
         stale.goto(base + "/editor/" + website_id, wait_until="domcontentloaded")
         expect(stale.get_by_role("button", name="Save", exact=True)).to_be_enabled(timeout=30000)
         canonical = owner_context.request.get("http://localhost:5000/api/websites/" + website_id)
@@ -135,12 +141,20 @@ with sync_playwright() as playwright:
             data={"name": "Changed by another command"})
         if external.status != 200:
             raise AssertionError("Independent versioned document command failed")
-        with stale.expect_response(lambda response: response.request.method == "PUT" and
-                response.url.endswith("/api/websites/" + website_id)) as rejected:
-            stale.get_by_role("button", name="Save", exact=True).click()
-        if rejected.value.status != 412:
-            raise AssertionError("Stale editor save was not rejected with a precondition conflict")
-        expect(stale.get_by_role("alert").filter(has_text="changed after you loaded")).to_be_visible()
+        # Autosave may have already received the version conflict between the
+        # independent commit and this click. The shared coordinator correctly
+        # refuses a second HTTP write after a definite conflict. Observe both
+        # paths; still require the real 412 and a visible recovery message.
+        stale.get_by_role("button", name="Save", exact=True).click()
+        try:
+            expect(stale.get_by_role("alert").filter(has_text="changed after you loaded")).to_be_visible()
+            if 412 not in stale_writes:
+                raise AssertionError("The stale tab did not receive a real precondition conflict")
+        except Exception:
+            print(json.dumps({"staleSaveStatuses": stale_writes}))
+            stale.screenshot(path=str(output / "document-conflict-failure.png"), full_page=True)
+            (output / "document-conflict-failure.txt").write_text(stale.locator("body").inner_text()[:12000])
+            raise
         persisted = owner_context.request.get("http://localhost:5000/api/websites/" + website_id).json()["website"]
         if persisted["name"] != "Changed by another command":
             raise AssertionError("Stale save overwrote the concurrent document")
