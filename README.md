@@ -1,263 +1,399 @@
 # ForgeStudio
 
-> Next-generation Elementor-like visual website builder and SaaS editing platform with integrated WordPress publishing, dynamic content engine, media management, and multi-tenant workspace administration.
+> Multi-tenant SaaS visual website builder with workspace administration, managed identity, version-aware editing, realtime presence, dynamic content, WordPress/SFTP publishing, and production-hardening pipelines.
 
----
+## Status
 
-## Overview
+ForgeStudio contains substantial working product functionality and an active production-hardening program.
 
-**ForgeStudio** is a high-performance visual website creation platform engineered to deliver an Elementor-like drag-and-drop design environment seamlessly coupled with enterprise SaaS capabilities and native WordPress integration.
+**Implemented and qualified:** managed identity boundaries, session revocation, workspace lifecycle/isolation, version-aware editor saves, WebSocket authorization, production builds, PostgreSQL/HTTP contracts, regression tests and browser journeys.
 
-ForgeStudio bridges the gap between modern visual design and WordPress deployment by providing:
-- **Visual Drag-and-Drop Builder:** High-speed layout editing with real-time responsive previews, inspectors, and component styling.
-- **Native WordPress Sync:** Bidirectional publishing engine powered by the custom `forgestudio-connector` plugin and HMAC-signed REST API communication.
-- **Dynamic Content & Custom Post Types:** Native Custom Post Type (CPT) builder, custom field engine, and entry management for dynamic template bindings.
-- **Enterprise Multi-Tenancy:** Multi-tenant workspace management, role-based access control (RBAC), team collaboration, white-label options, and subscription management.
+**Still being completed for production:** repository-wide tenant RLS, full organization billing, universal durable workers, production object-storage quarantine/scanning, the Platform Control Center, AWS/IaC deployment, restore exercises and contracted load qualification.
 
----
+See `docs/architecture/CURRENT_PIPELINE.md` for the detailed request/data/deployment pipeline.
 
-## Key Features
+## Implementation matrix
 
-### 🎨 Visual Website Builder
-- **Drag-and-Drop Canvas:** Component-based canvas supporting nested sections, columns, flex containers, and responsive breakpoints (Desktop, Tablet, Mobile).
-- **Rich Widget Library:** Core and Pro widgets including Hero sections, Nested Tabs, Accordions, Flip Boxes, Image Carousels, Lottie animations, Lightboxes, Countdowns, and WooCommerce product grids.
-- **Live Code Editor:** Integrated Monaco Editor (`@monaco-editor/react`) for custom JS/CSS/HTML code snippets with placement targeting (`HEAD`, `BODY_START`, `BODY_END`).
-- **Revision History:** Version snapshot creation, automated checkpointing, and instant rollback for published pages and design assets.
+| Area | Current state |
+| --- | --- |
+| Visual editor | Implemented: drag/drop editing, responsive tooling, widgets, Monaco code editing and revisions |
+| Editor concurrency | Implemented: document versions, `If-Match`, idempotency, stale-save rejection and conflict-aware browser behavior |
+| Organizations/workspaces | Implemented foundation/lifecycle: membership boundaries, settings, roles, eligible-member invitations, archive/restore and ownership administration |
+| Managed authentication | Implemented: OIDC authorization code flow, state, nonce, PKCE S256, signed-token checks and issuer+subject binding |
+| Local/test authentication | Browser-bound, expiring, single-use challenges with attempt/rate controls |
+| Sessions | Active-account checks, revocation/security versioning, session listing/revocation |
+| Authorization | Server-side RBAC/capability enforcement with fail-closed hardening on reviewed paths |
+| Realtime presence | Authenticated WebSockets, origin/resource checks, limits and authorization refresh/revocation |
+| PostgreSQL | Prisma/PostgreSQL source of truth, committed migrations and selected RLS-backed qualification |
+| WordPress | Connector plugin and publishing/synchronization functionality |
+| SFTP/static publishing | Existing functionality; complete durable reconciliation migration remains in progress |
+| Billing | Unsafe unverified paid activation blocked; full provider-backed organization lifecycle remains in progress |
+| CI | Builds, hardening tests, PostgreSQL/HTTP contracts, Part B regression and identity qualification |
 
-### 🔌 WordPress Integration & Publishing
-- **ForgeStudio Connector Plugin:** Lightweight PHP plugin establishing secure connection handshakes via the `forgestudio/v1` REST namespace.
-- **HMAC SHA-256 Authentication:** Signed REST API requests ensuring secure site pairing without exposing WordPress admin credentials.
-- **Gutenberg Block Transformation:** Automated conversion of ForgeStudio layout trees into native Gutenberg blocks (`wp:paragraph`, `wp:heading`, `wp:image`, etc.).
-- **Media & Menu Synchronization:** Direct media asset uploading to the WordPress Media Library and dynamic navigation menu synchronization.
-- **WooCommerce Product Integration:** Live REST API data fetching for product listings, pricing, and cart calculations.
+## SaaS ownership model
 
-### 🏢 SaaS & Multi-Tenant Management
-- **Workspaces & Organizations:** Multi-tenant organization structure with team invitations, role assignments, and granular permissions.
-- **Custom Post Type (CPT) Engine:** Build custom data structures with custom fields (Text, Media, Select, Number) and manage entries directly within the dashboard.
-- **White-Label Customization:** Custom branding options for agency clients, including custom logos, favicons, and custom domain routing.
-- **Subscription & Licensing:** Subscription plan management with credit ledger allocation and license key activation validation.
+```text
+User identity
+  -> Organization membership
+     -> Organization / tenant
+        -> Workspace membership
+           -> Workspace
+              -> Website
+                 -> Editor document / revisions
+                 -> Content / media
+                 -> Deployments / integrations
+```
 
-### 🔐 Security & Access Control
-- **Argon2id Hashing:** Password security using Argon2id algorithms.
-- **Role-Based Access Control (RBAC):** Strict role guards (`USER`, `ADMIN`, `SUPER_ADMIN`, `PLATFORM_ADMIN`, `SUPPORT_ADMIN`, `DEVELOPER`, `TEAM_MEMBER`).
-- **Input Sanitization & Protection:** DOMPurify content sanitization, Zod schema validation, Helmet security headers, rate limiting, and SSRF guards.
+Organization is the business tenant. Workspace membership is an additional authorization boundary. Organization membership alone does not grant access to every restricted workspace or website. Backend authorization is authoritative.
 
----
+## Request pipeline
+
+```text
+React/Vite Studio
+  -> API request
+  -> browser-origin/security admission where applicable
+  -> authenticated session
+  -> active-account + session-security checks
+  -> organization/workspace context
+  -> resource authorization
+  -> validation
+  -> application/service operation
+  -> PostgreSQL transaction
+       -> business state
+       -> audit where mandatory
+       -> idempotency/command state where applicable
+       -> outbox intent where applicable
+  -> stable HTTP result
+```
+
+## Identity and sessions
+
+Production identity is designed around managed OpenID Connect:
+
+```text
+Browser
+  -> OIDC authorization
+  -> state + nonce + PKCE S256
+  -> identity provider
+  -> callback
+  -> issuer/audience/signature/expiry/nonce validation
+  -> issuer + subject binding
+  -> active Forge account
+  -> Forge browser session
+```
+
+Key rules:
+
+- email equality alone does not prove external identity ownership;
+- production OIDC configuration is explicit;
+- privileged operations can require stronger authentication assurance;
+- session revocation is server-enforced;
+- local password/verification flows are for approved non-production/test modes;
+- managed-identity cutover has a preflight to prevent account lockout.
+
+Configuration template: `backend/identity.env.example`.
+
+## Workspaces
+
+Implemented/hardened workspace behavior includes creation, switching, scoped dashboards, settings, member/role administration, owner protection, controlled ownership changes, eligible in-organization invitations, archive/restore, read-only archived state, workspace-scoped websites, sibling-workspace isolation, command idempotency and transactional audit/outbox intent on reviewed paths.
+
+Frontend:
+
+```text
+frontend/src/features/workspaces/
+  WorkspaceSwitcher.tsx
+  WorkspaceDashboardView.tsx
+  WorkspaceAdministration.tsx
+  WorkspaceInvitationInbox.tsx
+  workspace-api.ts
+```
+
+Backend entry points include:
+
+```text
+backend/src/routes/tenant-workspace.routes.ts
+backend/src/routes/workspace-lifecycle.routes.ts
+backend/src/services/workspaces/
+```
+
+## Editor consistency
+
+Editor load requires current server authorization before document state is accepted.
+
+Reviewed saves use:
+
+```http
+If-Match: <expected-document-version>
+Idempotency-Key: <logical-command-id>
+X-Forge-Intent: document-command
+```
+
+A stale editor receives a conflict/precondition response instead of overwriting newer content. Browser qualification covers stale-tab behavior.
+
+## Realtime presence
+
+The WebSocket boundary includes authenticated admission, approved browser origins, website/workspace authorization, server-derived identity, connection/payload/buffer limits and authorization refresh/revocation.
+
+This is a qualified security foundation, **not** a claim of horizontally distributed realtime capacity.
+
+## Commercial SaaS
+
+Historical behavior that could treat plan selection as proof of payment has been hardened. The production contract is:
+
+```text
+organization plan selection
+  -> trusted checkout
+  -> payment provider
+  -> verified provider event
+  -> durable event inbox
+  -> idempotent reconciliation
+  -> organization subscription
+  -> entitlements
+  -> seats / quotas / usage
+```
+
+Complete provider checkout, signed webhooks, reconciliation, seats and usage reservations remain a dedicated implementation stream.
+
+## Publishing, files and integrations
+
+ForgeStudio contains WordPress connector and remote/static publishing functionality. Publishing is being migrated toward immutable revisions, durable deployment records/jobs, verification and explicit reconciliation of uncertain remote outcomes.
+
+Production file handling is being migrated toward:
+
+```text
+authorized upload
+  -> tenant/workspace object identity
+  -> quarantine
+  -> size/type/signature validation
+  -> malware/archive checks
+  -> immutable approved object
+  -> processing
+  -> authorized download
+```
+
+Complete production S3 quarantine/scanning coverage remains in progress.
 
 ## Architecture
 
 ```mermaid
-graph TD
-    User([User / Designer]) <-->|HTTPS / Web App| Frontend[ForgeStudio Frontend - React 19 + Vite]
-    Frontend <-->|REST API / JSON| Backend[ForgeStudio Backend - Express v5]
-    Backend <-->|Prisma ORM| Database[(PostgreSQL Database)]
-    Backend <-->|HMAC Signed REST API| WPConnector[forgestudio-connector Plugin]
-    WPConnector <-->|Native REST API| WordPress[(Remote WordPress Site)]
-    Backend <-->|SFTP / SSH2| RemoteHost[(Remote SFTP Host)]
+flowchart TD
+    User[User / Designer] -->|HTTPS| Studio[React 19 + Vite]
+    Studio -->|REST| API[Express 5 API]
+    Studio -->|WebSocket| Presence[Authenticated Presence]
+    API --> Identity[Identity + Sessions]
+    API --> Access[Organization + Workspace Authorization]
+    Identity --> DB[(PostgreSQL)]
+    Access --> DB
+    API --> Editor[Website + Document Services]
+    Editor --> DB
+    API --> WP[WordPress Integration]
+    API --> SFTP[SFTP / Static Deployment]
+    WP --> WordPress[Remote WordPress]
+    SFTP --> Remote[Remote Host]
 ```
 
----
-
-## Technology Stack
-
-| Layer | Technology | Version | Description |
-| :--- | :--- | :--- | :--- |
-| **Frontend Core** | React | `^19.2.8` | Declarative UI component engine |
-| **Build System** | Vite | `^8.2.0` | Lightning-fast frontend module bundler |
-| **Language** | TypeScript | `^5.7.0` | Static typing across monorepo |
-| **Styling** | Tailwind CSS | `^4.3.3` | Utility-first CSS styling engine |
-| **Code Editor** | Monaco Editor | `^0.56.0` | In-browser code editing capabilities |
-| **Backend Core** | Express | `^5.2.1` | REST API HTTP server framework |
-| **Database ORM** | Prisma ORM | `^7.10.0` | Type-safe database client and migrations |
-| **Database Engine** | PostgreSQL | `pg ^8.23.0` | Relational database storage |
-| **Password Security**| Argon2 | `^0.45.1` | Secure password hashing algorithm |
-| **Input Validation** | Zod | `^4.4.3` | Schema-based payload validation |
-| **WordPress Plugin**| PHP | `>=7.4` | WordPress connector plugin runtime |
-| **Image Processing**| Sharp | `^0.35.4` | High-performance WebP image optimization |
-
----
-
-## Project Structure
+Target production topology:
 
 ```text
-forgestudio/
-├── frontend/                     # React 19 + Vite Web Application
-│   ├── src/
-│   │   ├── components/           # Reusable UI components & Error Boundary
-│   │   ├── context/              # Auth & Accessibility React contexts
-│   │   ├── features/             # Feature modules (Editor, Publishing, Dashboards)
-│   │   ├── hooks/                # Custom React hooks
-│   │   ├── pages/                # Route components (Auth, Dashboards, Editor, CPTs)
-│   │   ├── services/             # API HTTP client integration services
-│   │   ├── styles/               # Global CSS & Tailwind configuration
-│   │   ├── types/                # TypeScript interfaces & types
-│   │   ├── App.tsx               # Main routing & role authorization engine
-│   │   └── main.tsx              # Application entry point
-│   └── package.json
-├── backend/                      # Express v5 + Prisma Backend API
-│   ├── prisma/
-│   │   └── schema.prisma         # Prisma PostgreSQL database schema
-│   ├── src/
-│   │   ├── config/               # Environment & database configuration
-│   │   ├── controllers/          # API endpoint logic controllers
-│   │   ├── middlewares/          # Auth, RBAC, Rate-limit, and Error middlewares
-│   │   ├── routes/               # API route definitions
-│   │   ├── services/             # WordPress connector, publishing, auth services
-│   │   ├── utils/                # Crypto, HMAC, and helper utilities
-│   │   ├── app.ts                # Express application bootstrap
-│   │   └── server.ts             # HTTP server execution entry point
-│   └── package.json
-├── wordpress-plugin/             # WordPress Connector Plugin
-│   ├── forgestudio-connector/
-│   │   ├── forgestudio-connector.php # PHP connector implementation
-│   │   └── wordpress-stubs.php   # IDE development stubs
-│   └── readme.txt                # WordPress plugin repository metadata
-├── docs/                         # Technical Architecture & Plugin Documentation
-│   ├── wordpress-connector-plugin.md # Comprehensive WordPress integration guide
-│   └── planning/                 # System design & architecture specifications
-├── tests/                        # Automated Regression & E2E Test Suite
-└── README.md                     # Official Production Documentation
+Route53 -> CloudFront -> WAF -> ALB
+  -> private API/realtime/integration/worker workloads
+  -> managed PostgreSQL
+  -> S3
+  -> durable queues
+  -> optional Redis/search/AI adapters
+  -> Secrets Manager/KMS
+  -> OpenTelemetry-compatible observability
 ```
 
----
+The codebase is being migrated incrementally toward explicit modules, ports/adapters, durable execution and a separately secured Platform Control Center.
 
-## Prerequisites
+## Technology stack
 
-Before deploying or running ForgeStudio locally, ensure your environment meets the following requirements:
+| Layer | Current package |
+| --- | --- |
+| Frontend | React `^19.2.8` |
+| Build | Vite `^8.2.0` |
+| Frontend TypeScript | `~6.0.2` |
+| Styling | Tailwind CSS `^4.3.3` |
+| Editor | Monaco `^0.56.0` |
+| Backend | Express `^5.2.1` |
+| Backend TypeScript | `^7.0.2` |
+| ORM | Prisma `^7.10.0` |
+| Database | PostgreSQL / `pg ^8.23.0` |
+| OIDC | `openid-client 6.8.8` |
+| Password hashing | Argon2 `^0.45.1` |
+| Validation | Zod `^4.4.3` |
+| Realtime | `ws ^8.21.3` |
+| Mail | Nodemailer `9.1.1` |
+| Images | Sharp `^0.35.4` |
+| SFTP | `ssh2-sftp-client ^12.1.1` |
 
-- **Node.js:** `v20.x` or `v22.x` LTS
-- **npm:** `v10.x` or higher
-- **PostgreSQL:** `v15.x` or `v16.x`
-- **WordPress:** `v6.0+` with PHP `>=7.4` (For remote site publishing features)
-- **Git:** `v2.x`
+## Repository structure
 
----
-
-## Environment Setup
-
-Create a `.env` file inside the `backend/` directory based on the following template:
-
-```env
-# Backend Server Configuration
-PORT=5000
-NODE_ENV=development
-CLIENT_URL=http://localhost:5173
-
-# Database Connection
-DATABASE_URL=postgresql://postgres:postgres_password@localhost:5432/forgestudio?schema=public
-
-# Cryptographic & Session Secrets
-JWT_SECRET=your_512_bit_secure_jwt_secret_key_here
-SESSION_COOKIE_SECRET=your_secure_session_cookie_secret_key_here
-ENCRYPTION_KEY=your_32_byte_hex_encryption_key_here
-WP_CONNECTOR_SECRET=your_256_bit_hmac_webhook_secret_here
-
-# Mailer Configuration (Optional)
-SMTP_HOST=smtp.mailtrap.io
-SMTP_PORT=587
-SMTP_USER=your_smtp_username
-SMTP_PASS=your_smtp_password
-SMTP_FROM_EMAIL=noreply@forgestudio.io
+```text
+forge/
+├── frontend/src/
+│   ├── components/
+│   ├── context/
+│   ├── features/identity/
+│   ├── features/workspaces/
+│   ├── pages/auth/
+│   ├── pages/editor/
+│   └── services/
+├── backend/
+│   ├── prisma/{schema.prisma,migrations/}
+│   ├── src/adapters/
+│   ├── src/middlewares/
+│   ├── src/modules/identity/
+│   ├── src/platform/ports/
+│   ├── src/routes/
+│   ├── src/services/
+│   ├── src/tests/
+│   └── identity.env.example
+├── wordpress-plugin/
+├── tests/{api,browser,database,hardening,performance,recovery,security,wordpress}/
+├── docs/architecture/CURRENT_PIPELINE.md
+├── docs/implementation/
+├── .github/workflows/
+└── README.md
 ```
 
-Create a `.env` file inside the `frontend/` directory if connecting to a custom backend host:
+## Recent hardening migrations
 
-```env
-VITE_API_BASE_URL=http://localhost:5000/api
-```
+| Migration | Purpose |
+| --- | --- |
+| `20260928090000_workspace_command_journal` | Workspace command/idempotency foundations |
+| `20260928122000_workspace_lifecycle` | Workspace lifecycle/settings/member hardening |
+| `20260928140000_document_concurrency` | Version-aware document saves |
+| `20260928170000_identity_boundary` | Managed identity/session-security metadata |
 
----
-
-## Installation & Running Locally
-
-### 1. Clone Repository & Install Monorepo Dependencies
-```bash
-git clone https://github.com/your-org/forgestudio.git
-cd forgestudio
-npm install
-```
-
-### 2. Setup & Initialize Database (Prisma)
-```bash
-cd backend
-npm run db:generate
-npm run db:push
-npm run db:seed
-```
-
-### 3. Start Development Servers
-
-**Backend API (`http://localhost:5000`):**
-```bash
-cd backend
-npm run dev
-```
-
-**Frontend Builder Application (`http://localhost:5173`):**
-```bash
-cd frontend
-npm run dev
-```
-
----
-
-## WordPress Connector Plugin Setup
-
-1. Copy the `wordpress-plugin/forgestudio-connector` directory into your target WordPress site's `wp-content/plugins/` directory.
-2. Log into the WordPress Admin Dashboard, navigate to **Plugins**, and click **Activate** on **ForgeStudio Connector**.
-3. Go to **Settings -> ForgeStudio** in WordPress to locate your **API Key** and **Webhook Secret**.
-4. In ForgeStudio under **Website Settings -> WordPress Connection**, input your WordPress Site URL and API credentials to establish pairing.
-
----
-
-## API Architecture Summary
-
-The backend exposes a structured REST API under the `/api` namespace:
-
-| Area | Base Path | Key Capabilities |
-| :--- | :--- | :--- |
-| **Auth** | `/api/auth` | User register, login, logout, OTP verification, OAuth callback |
-| **Websites** | `/api/websites` | Website CRUD, page editor data save/fetch, revision snapshots |
-| **WordPress** | `/api/websites/:id/wordpress` | WP pairing, live post publishing, media sync, menu sync |
-| **Custom Post Types** | `/api/cpts` | CPT schema creation, custom fields, entry CRUD management |
-| **Media Library** | `/api/media` | Image upload, WebP optimization, alt text update, deletion |
-| **Deployments** | `/api/deployments` | Static ZIP compilation, SFTP sync, deployment history |
-| **Teams & Workspaces** | `/api/teams`, `/api/workspaces` | Workspace setup, member invitations, role management |
-| **Health** | `/api/health` | System health check, database ping, memory diagnostic |
-
----
-
-## Automated Testing & Quality Assurance
-
-ForgeStudio includes a regression testing suite executed via `tsx`:
+Production schema changes use committed migrations:
 
 ```bash
-# Run complete Part B regression test suite
+npm run db:migrate --prefix backend
+```
+
+This runs `prisma migrate deploy`. `db:push` is for disposable development/test databases and CI fixtures, not production migration.
+
+## Local development
+
+Prerequisites: Node.js 22.x recommended, compatible npm, PostgreSQL 15+, Git, and WordPress/PHP only when exercising the connector.
+
+```bash
+git clone https://github.com/ooarchitect92/forge.git
+cd forge
+
+npm ci
+npm ci --prefix backend
+npm ci --prefix frontend
+```
+
+Configure `DATABASE_URL`.
+
+Disposable local database:
+
+```bash
+npm run db:generate --prefix backend
+npm run db:push --prefix backend
+```
+
+Migration-driven environment:
+
+```bash
+npm run db:migrate --prefix backend
+```
+
+Managed authentication starts from `backend/identity.env.example`. Inject `OIDC_CLIENT_SECRET` from an approved secret store; never commit it.
+
+Run:
+
+```bash
+npm run dev --prefix backend
+npm run dev --prefix frontend
+```
+
+Typical local endpoints are backend `http://localhost:5000` and frontend `http://localhost:5173`.
+
+## Build and test
+
+Production builds:
+
+```bash
+npm run build --prefix backend
+npm run build --prefix frontend
+```
+
+Root regression commands:
+
+```bash
 npm run test:part-b
-
-# Run individual test modules
-npm run test:api         # API Endpoint Integration Tests
-npm run test:db          # PostgreSQL Database Integrity Tests
-npm run test:wp          # WordPress REST API E2E Tests
-npm run test:security    # Security & RBAC Guard Tests
-npm run test:performance # Performance & Latency Tests
-npm run test:recovery    # Environment Failover & Recovery Tests
+npm run test:api
+npm run test:db
+npm run test:wp
+npm run test:security
+npm run test:performance
+npm run test:recovery
 ```
 
----
+## CI and qualification
 
-## Production Deployment Checklist
+Current workflows include:
 
-Before deploying ForgeStudio to a production environment:
+```text
+build-validation.yml
+hardening-unit.yml
+workspace-integration.yml
+part-b-regression.yml
+identity-boundary.yml
+qualify-saas-increment.yml
+dependency-candidate.yml
+identity-toolchain.yml
+postgres-toolchain.yml
+toolchain-snapshot.yml
+```
 
-1. **Secret Rotation:** Ensure all development default secrets (`JWT_SECRET`, `SESSION_COOKIE_SECRET`, `WP_CONNECTOR_SECRET`) are rotated to 512-bit CSPRNG keys in production environment secrets management.
-2. **TLS / HTTPS:** Secure all domain endpoints (`app.forgestudio.io`, `api.forgestudio.io`) behind reverse proxies (Nginx / Caddy) enforcing TLS 1.3 and HSTS headers.
-3. **Database Migration:** Use `npx prisma migrate deploy` for zero-downtime production database schema updates.
-4. **CORS Configuration:** Restrict `CLIENT_URL` in backend production configuration strictly to your verified frontend domain.
-5. **Log Hygiene:** Ensure log outputs run with production log sanitization enabled to prevent secret exposure.
+The reviewed identity/SaaS qualification pipeline covers locked installs, frontend/backend production builds, source/architecture checks, signed OIDC fixtures, real local TLS SMTP contracts, PostgreSQL workspace/document contracts, identity migration/negative HTTP contracts, WebSocket authorization, compiled workspace/editor browser journeys, identity browser journeys and dependency release gates.
 
----
+A failed run remains failure evidence; it is not rewritten as a pass.
+
+## Security principles
+
+- server-side authorization on protected actions;
+- organization/workspace/resource scope validation;
+- fail-closed security decisions;
+- no runtime schema repair from HTTP handlers;
+- no committed production secrets;
+- OIDC issuer+subject identity binding;
+- revocable sessions;
+- browser-origin protection where required;
+- versioned/idempotent sensitive commands;
+- bounded WebSocket admission/payloads;
+- controlled external destinations;
+- mandatory audit for sensitive reviewed mutations;
+- versioned production migrations.
+
+## Remaining production-readiness work
+
+1. **Tenant isolation:** legacy ownership backfill and forced RLS across all applicable tables/execution paths.
+2. **Commercial SaaS:** organization checkout, verified webhooks, reconciliation, seats and usage reservations.
+3. **Durable execution:** production outbox dispatch, queues, bounded workers, DLQ/replay and reconciliation.
+4. **Object storage:** S3 authorization, quarantine/scanning and authorized downloads.
+5. **Integrations:** complete credential governance and egress/SSRF controls.
+6. **Control plane:** capability registry, governed switches and separately secured Platform Control Center.
+7. **Frontend:** continued editor decomposition, capability consistency and broader accessibility/browser qualification.
+8. **Operations:** IaC/AWS provisioning, secret stores, observability/alerts, restore exercises, failure tests and declared load qualification.
+
+## Documentation
+
+- `docs/architecture/CURRENT_PIPELINE.md` — end-to-end request, data, CI/CD, deployment and recovery pipeline.
+- `docs/implementation/` — incremental hardening records, migration notes and validation evidence.
+- `docs/implementation/14-identity-boundary.md` — managed identity implementation.
+- `docs/implementation/identity-threat-model.md` — identity threat model.
+
+## Production release rule
+
+A successful build is necessary but not sufficient. A capability is production-ready only when its authorization/tenant boundaries, durable behavior, migrations, failure/degraded behavior, telemetry, recovery path and reproducible acceptance evidence are complete for the declared deployment profile.
 
 ## License
 
-This project is proprietary software. All rights reserved. Unauthorized copying, distribution, or usage is strictly prohibited.
+Proprietary software. All rights reserved.
