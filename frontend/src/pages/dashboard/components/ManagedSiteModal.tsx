@@ -95,6 +95,7 @@ export const ManagedSiteModal: React.FC<ManagedSiteModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>("overview");
   const [details, setDetails] = useState<any>(null);
+  const [documentVersion, setDocumentVersion] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -397,9 +398,11 @@ export const ManagedSiteModal: React.FC<ManagedSiteModalProps> = ({
       const res = await fetch(`${apiUrl}/api/websites/${website.id}/managed-details`, {
         credentials: "include",
       });
-      const data = await res.json();
+      const envelope = await res.json();
+      const data = envelope.data;
       if (res.ok && data) {
         setDetails(data);
+        setDocumentVersion(Number.isInteger(data.website?.documentVersion) ? data.website.documentVersion : null);
         if (data.mailerConfig) {
           setMailerForm({
             host: data.mailerConfig.host || "",
@@ -1516,17 +1519,19 @@ export const ManagedSiteModal: React.FC<ManagedSiteModalProps> = ({
   // Handler: Save Cookie Consent
   const handleSaveCookieConsent = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!documentVersion) {setFeedback({type: "error", message: "Reload website settings before saving."}); return;}
     setActionLoading(true);
     setFeedback(null);
     try {
       const res = await fetch(`${apiUrl}/api/websites/${website.id}/cookie-consent`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Forge-Intent": "document-command",
+          "If-Match": `"${website.id}:document:${documentVersion}"`, "Idempotency-Key": crypto.randomUUID() },
         credentials: "include",
         body: JSON.stringify(cookieForm),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Failed to update cookie consent.");
+      if (!res.ok) throw new Error(data.error?.message || data.detail || "Failed to update cookie consent.");
       setFeedback({ type: "success", message: "Cookie consent settings updated successfully!" });
       fetchManagedDetails();
     } catch (err: any) {

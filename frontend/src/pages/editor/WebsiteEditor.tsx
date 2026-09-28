@@ -23,7 +23,7 @@ import { AtomicEditor, GlobalElementService, ReusableComponentService } from "..
 import { publishingService } from "../../features/publishing/services/publishingService";
 import { useComponentAccess } from "../../features/permissions/hooks/useComponentAccess";
 import { loadAuthorizedWebsite } from "../../features/editor-access/load-authorized-website";
-import { saveAuthorizedWebsite } from "../../features/editor-access/save-authorized-website";
+import { createDocumentSaveCoordinator } from "../../features/editor-access/document-save-coordinator";
 import { ContentOnlyInspector } from "./components/ContentOnlyInspector";
 import { ExperimentManagerModal } from "./components/experiments/ExperimentManagerModal";
 import { useCanvasPresence } from "../../features/collaboration/hooks/useCanvasPresence";
@@ -334,6 +334,12 @@ export default function WebsiteEditor() {
 
   // State Management
   const [website, setWebsite] = useState<WebsiteData | null>(null);
+  const documentWriter = useMemo(() => createDocumentSaveCoordinator(apiUrl, websiteId || ""), [apiUrl, websiteId]);
+  const persistDocument = useCallback(async (payload: unknown, signal?: AbortSignal) => {
+    const saved = await documentWriter.save(payload, signal);
+    setWebsite(current => current && current.id === saved.id ? { ...current, ...saved } : current);
+    return saved;
+  }, [documentWriter]);
 
   const [globalSettings, setGlobalSettings] = useState<any>({
     siteIdentity: { name: "My Website" },
@@ -1804,6 +1810,7 @@ export default function WebsiteEditor() {
         if (controller.signal.aborted) return;
 
         if (loadedSite) {
+          documentWriter.initialize(loadedSite.documentVersion);
           setWebsite(loadedSite);
 
           // Fetch component accesses
@@ -1992,6 +1999,7 @@ export default function WebsiteEditor() {
     pageCss,
     apiUrl,
     isLoadingWebsite: loading || !website || !userAccess.canEditContent,
+    persistDocument,
   });
 
   // F-322 / F-334 Save & Update Template Integration
@@ -2467,7 +2475,7 @@ export default function WebsiteEditor() {
       };
 
       // Only a confirmed server response advances the saved baseline.
-      await saveAuthorizedWebsite(apiUrl, websiteId, payload);
+      await persistDocument(payload);
 
       // Update F-321 Autosave baseline on successful save
       updateAutosaveBaseline(
@@ -7128,8 +7136,8 @@ export default function WebsiteEditor() {
           {/* 3. Right Region: Compact Tools, History, Primary Actions */}
           <div className="flex items-center justify-end gap-1.5 md:gap-2 shrink-0">
             {/* Status Messages */}
-            {saveMessage && <span className="text-xs font-medium text-emerald-400 shrink-0 hidden xl:inline">✓ {saveMessage}</span>}
-            {errorMessage && <span className="text-xs font-medium text-red-400 shrink-0 hidden xl:inline">{errorMessage}</span>}
+            {saveMessage && <span role="status" aria-live="polite" className={`text-xs font-medium shrink-0 ${saveMessage.startsWith("Save failed") ? "text-red-400" : "text-emerald-400"}`}>{saveMessage}</span>}
+            {errorMessage && <span role="alert" className="text-xs font-medium text-red-400 shrink-0 max-w-sm">{errorMessage}</span>}
 
             {/* History Controls Group (Undo / Redo / History) */}
             <div className="flex items-center gap-0.5 bg-[#16203a] p-0.5 rounded-lg border border-slate-700/80 shrink-0">

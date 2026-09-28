@@ -1,3 +1,7 @@
+import { documentWriteContext } from "../services/websites/document-request.js";
+import { documentETag } from "../services/websites/document-policy.js";
+import { authorizeResourceAccess } from "../services/permission.service.js";
+import { publishWebsite } from "../services/publishing.service.js";
 import type { Request, Response, NextFunction } from "express";
 import { getUserWebsites, getWebsiteById, updateWebsiteEditorData } from "../services/website.service.js";
 import { AppError } from "../utils/app-error.js";
@@ -8,6 +12,7 @@ const serializeWebsite = (ws: any) => ({
     name: ws.name,
     slug: ws.slug,
     status: ws.status,
+    documentVersion: ws.documentVersion,
     createdAt: ws.createdAt,
     updatedAt: ws.updatedAt,
 });
@@ -59,6 +64,8 @@ export async function getDeveloperWebsiteByIdHandler(req: Request, res: Response
             throw new AppError("Website not found or access denied.", 404, "NOT_FOUND");
         }
 
+        res.setHeader("ETag", documentETag(website.id, website.documentVersion));
+        res.setHeader("Cache-Control", "no-store");
         return res.status(200).json({
             data: {
                 ...serializeWebsite(website),
@@ -87,7 +94,7 @@ export async function updateDeveloperWebsiteHandler(req: Request, res: Response,
 
         // Implicit ownership verification and validation exists right inside updateWebsiteEditorData!
         // It validates priority integers structurally against floats/overflows globally.
-        const website = await updateWebsiteEditorData(websiteId, user.id, editorData);
+        const website = await updateWebsiteEditorData(websiteId, user.id, editorData, undefined, documentWriteContext(req, websiteId));
 
         return res.status(200).json({
             data: serializeWebsite(website)
@@ -99,44 +106,12 @@ export async function updateDeveloperWebsiteHandler(req: Request, res: Response,
 
 export async function publishDeveloperWebsiteHandler(req: Request, res: Response, next: NextFunction) {
     try {
-        // F-118 Publish Workflow
-        const user = res.locals.user;
-        const websiteId = req.params.id as string;
-
-        const website = await getWebsiteById(websiteId, user.id);
-        const editorData = website.editorData as any;
-
-        if (!editorData) {
-            throw new AppError("Malformed editorData.", 500, "SERVER_ERROR");
-        }
-
-        // Transactionally commit publish transformations! 
-        // Iterate through all custom snippets and merge drafted -> published safely just like front-end does!
-        if (Array.isArray(editorData.customCodeSnippets)) {
-            editorData.customCodeSnippets = editorData.customCodeSnippets.map((snippet: any) => {
-                if (snippet.status === "scheduled") return snippet; // Scheduler has ownership over scheduling!
-
-                if (snippet.status === "modified" || snippet.status === "draft") {
-                    return {
-                        ...snippet,
-                        status: "published",
-                        published: JSON.parse(JSON.stringify(snippet.draft)),
-                        updatedAt: new Date().toISOString()
-                    };
-                }
-                return snippet;
-            });
-        }
-
-        // Then, rewrite this mutated blob into DB exactly mirroring standard user flows utilizing the unified service 
-        const updated = await updateWebsiteEditorData(websiteId, user.id, editorData);
-
-        return res.status(200).json({
-            message: "Website strictly published securely.",
-            data: serializeWebsite(updated)
-        });
-
-    } catch (e) {
-        next(e);
-    }
+        const userId = res.locals.user.id;
+        const websiteId = String(req.params.id);
+        await authorizeResourceAccess(userId, websiteId, "*", "PUBLISH");
+        // The publishing service owns validation, release snapshots and deployment state.
+        // Merely rewriting snippet status is not a successful publication.
+        const result = await publishWebsite(websiteId, userId, { environment: "PRODUCTION", destinationType: "INTERNAL" });
+        return res.status(200).json({ success: true, data: result });
+    } catch (error) { next(error); }
 }

@@ -20,13 +20,13 @@ test('AUTH-001: valid authorized response preserves current actor role',async()=
 });
 for(const status of [403,409,412,500])test(`FG-003: failed save ${status} cannot acknowledge a persisted document`,async()=>{
  const {saveAuthorizedWebsite}=await loadTypeScript('frontend/src/features/editor-access/save-authorized-website.ts',{}, {AbortSignal,fetch:async()=>({ok:false,status,json:async()=>({error:{message:'not committed'}})})});
- await assert.rejects(saveAuthorizedWebsite('https://example.test','site',{editorData:{}}),/not committed/);
+ await assert.rejects(saveAuthorizedWebsite('https://example.test','site',{editorData:{}},{expectedVersion:1,key:'test-save-0001'}),/not committed/);
 });
 test('FG-003: network failure does not become local-save success',async()=>{
  const {saveAuthorizedWebsite}=await loadTypeScript('frontend/src/features/editor-access/save-authorized-website.ts',{}, {AbortSignal,fetch:async()=>{throw new Error('network unavailable');}});
- await assert.rejects(saveAuthorizedWebsite('https://example.test','site',{editorData:{}}),/network unavailable/);
+ await assert.rejects(saveAuthorizedWebsite('https://example.test','site',{editorData:{}},{expectedVersion:1,key:'test-save-0001'}),/outcome is unknown/);
 });
 test('FG-003: acknowledgement must reference the saved site',async()=>{
  const {saveAuthorizedWebsite}=await loadTypeScript('frontend/src/features/editor-access/save-authorized-website.ts',{}, {AbortSignal,fetch:async()=>({ok:true,json:async()=>({website:{id:'other'}})})});
- await assert.rejects(saveAuthorizedWebsite('https://example.test','site',{editorData:{}}),/acknowledgement/);
+ await assert.rejects(saveAuthorizedWebsite('https://example.test','site',{editorData:{}},{expectedVersion:1,key:'test-save-0001'}),/acknowledgement/);
 });

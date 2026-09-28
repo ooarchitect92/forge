@@ -25,6 +25,7 @@ export async function loadTypeScript(relativePath, mocks = {}, globals = {}) {
 
   function source(path) {
     if (!existsSync(path) && path.endsWith('.js')) path = path.slice(0, -3) + '.ts';
+    if (!existsSync(path) && !extname(path)) path += '.ts';
     if (!modules.has(path)) {
       const raw = readFileSync(path, 'utf8');
       const code = extname(path) === '.ts'

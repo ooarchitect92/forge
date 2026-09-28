@@ -1,3 +1,4 @@
+import type { WorkspaceTransaction } from "../workspaces/access.js";
 import { prisma } from "../../config/prisma.js";
 import { AppError } from "../../utils/app-error.js";
 import { requireActiveActor } from "../workspaces/access.js";
@@ -52,15 +53,17 @@ function scopeRelations(actorId: string) {
   } as const;
 }
 
-export async function getScopedWebsite(websiteId: string, actorId: string) {
-  return prisma.$transaction(async (tx) => {
+export async function getScopedWebsiteInTransaction(tx: WorkspaceTransaction, websiteId: string, actorId: string) {
     await requireActiveActor(tx, actorId);
     const row = await tx.website.findUnique({ where: { id: websiteId }, include: { ...scopeRelations(actorId), customCodeSnippets: true } });
     const role = row && resolveWebsiteRole(row, actorId);
     if (!row || !role) throw new AppError("Website not found or access denied", 404, "WEBSITE_NOT_FOUND");
     const { organization, workspace, collaborators, granularPermissions, ...website } = row;
     return { ...website, userPermission: role, workspaceStatus: workspace?.lifecycleStatus ?? "ACTIVE" };
-  });
+}
+
+export async function getScopedWebsite(websiteId: string, actorId: string) {
+  return prisma.$transaction(tx => getScopedWebsiteInTransaction(tx, websiteId, actorId));
 }
 
 export async function listScopedOwnedWebsites(actorId: string) {

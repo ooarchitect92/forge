@@ -17,7 +17,7 @@ async function fixture({ role = 'ADMIN', overrides = [], lookupFailure = false, 
     granularPermission: { findMany: async (input) => {
       calls.lookups.push(input);
       if (lookupFailure) throw new Error('permission store unavailable');
-      return overrides.filter((entry) => input.where.capability.in.includes(entry.capability));
+      return overrides.map(entry => ({resourceId: "*", ...entry})).filter((entry) => input.where.capability.in.includes(entry.capability));
     } },
     $transaction: async (operation) => {
       try { const result = await operation(tx); calls.committed.push(...calls.pending); return result; }

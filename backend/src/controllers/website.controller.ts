@@ -1,3 +1,5 @@
+import { documentWriteContext } from "../services/websites/document-request.js";
+import { documentETag } from "../services/websites/document-policy.js";
 import type { Request, Response, NextFunction } from "express";
 import {
   getUserWebsites,
@@ -5,7 +7,7 @@ import {
   getManagedWebsiteDetails,
   updateCookieConsentConfig,
   createWebsite,
-  updateWebsiteEditorData,
+  updateWebsite,
   deleteWebsite,
 } from "../services/website.service.js";
 
@@ -45,6 +47,8 @@ export async function getWebsiteByIdHandler(
     const websiteId = req.params.id as string;
 
     const website = await getWebsiteById(websiteId, user.id);
+    res.setHeader("ETag", documentETag(website.id, website.documentVersion));
+    res.setHeader("Cache-Control", "no-store");
 
     return res.status(200).json({
       success: true,
@@ -112,7 +116,7 @@ export async function updateCookieConsentHandler(
   try {
     const user = res.locals.user;
     const websiteId = req.params.id as string;
-    const result = await updateCookieConsentConfig(websiteId, user.id, req.body || {});
+    const result = await updateCookieConsentConfig(websiteId, user.id, req.body || {}, documentWriteContext(req, websiteId));
     return res.status(200).json({
       success: true,
       cookieConsent: result,
@@ -161,9 +165,9 @@ export async function updateWebsiteHandler(
   try {
     const user = res.locals.user;
     const websiteId = req.params.id as string;
-    const { editorData, performanceSettings } = req.body;
-
-    const website = await updateWebsiteEditorData(websiteId, user.id, editorData, performanceSettings);
+    const website = await updateWebsite(websiteId, req.body, user.id, documentWriteContext(req, websiteId));
+    res.setHeader("ETag", documentETag(website.id, website.documentVersion));
+    res.setHeader("Cache-Control", "no-store");
 
     return res.status(200).json({
       success: true,

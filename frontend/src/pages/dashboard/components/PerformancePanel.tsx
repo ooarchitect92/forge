@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { createDocumentSaveCoordinator } from "../../../features/editor-access/document-save-coordinator";
 
 const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
@@ -43,7 +44,26 @@ export default function PerformancePanel() {
     const [saved, setSaved] = useState(false);
 
     useEffect(() => { fetchWebsites(); }, []);
-    useEffect(() => { if (selectedSite) fetchSettings(); }, [selectedSite]);
+    const [error, setError] = useState("");
+    const [ready, setReady] = useState(false);
+    const selectionRef = useRef(selectedSite); selectionRef.current = selectedSite;
+    const writer = useMemo(() => createDocumentSaveCoordinator(apiUrl, selectedSite), [selectedSite]);
+    useEffect(() => {
+        const controller = new AbortController(); setReady(false); setError(""); setSaved(false);
+        if (!selectedSite) return () => controller.abort();
+        setLoading(true);
+        fetch(`${apiUrl}/api/websites/${selectedSite}`, {credentials: "include", signal: controller.signal})
+          .then(async response => {
+              const body = await response.json();
+              if (!response.ok || body.website?.id !== selectedSite) throw new Error("Unable to load authorized settings");
+              if (controller.signal.aborted) return;
+              writer.initialize(body.website.documentVersion);
+              setSettings({...defaultSettings, ...body.website.performanceSettings}); setReady(true);
+          }).catch(failure => {if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : "Unable to load settings");})
+          .finally(() => {if (!controller.signal.aborted) setLoading(false);});
+        return () => controller.abort();
+    }, [selectedSite, writer]);
+    useEffect(() => {if (!saved) return; const timer=setTimeout(() => setSaved(false),3000); return () => clearTimeout(timer);}, [saved]);
 
     const fetchWebsites = async () => {
         try {
@@ -56,42 +76,28 @@ export default function PerformancePanel() {
         } catch { /* no-op */ }
     };
 
-    const fetchSettings = async () => {
-        setLoading(true);
-        try {
-            const res = await fetch(`${apiUrl}/api/websites/${selectedSite}`, { credentials: "include" });
-            const data = await res.json();
-            if (res.ok) {
-                const saved = data.website?.performanceSettings || data.performanceSettings;
-                if (saved) setSettings({ ...defaultSettings, ...saved });
-            }
-        } catch { /* use defaults */ }
-        finally { setLoading(false); }
-    };
-
     const toggle = (key: keyof PerformanceSettings) => {
         setSettings(prev => ({ ...prev, [key]: !prev[key] }));
         setSaved(false);
     };
 
     const handleSave = async () => {
-        setSaving(true); setSaved(false);
+        if (!ready || !selectedSite) return;
+        const scope = selectedSite;
+        setSaving(true); setSaved(false); setError("");
         try {
-            await fetch(`${apiUrl}/api/websites/${selectedSite}/editor-data`, {
-                method: "PUT", credentials: "include",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ performanceSettings: settings }),
-            });
-            setSaved(true);
-            setTimeout(() => setSaved(false), 3000);
-        } catch { /* no-op */ }
-        finally { setSaving(false); }
+            await writer.save({performanceSettings: settings});
+            if (selectionRef.current === scope) setSaved(true);
+        } catch (failure) {
+            if (selectionRef.current === scope) setError(failure instanceof Error ? failure.message : "Settings were not saved");
+        } finally { if (selectionRef.current === scope) setSaving(false); }
     };
 
     const enabledCount = Object.values(settings).filter(Boolean).length;
 
     return (
         <div className="space-y-6">
+            {error && <p role="alert" className="text-red-700">{error}</p>}
             {/* Header */}
             <div className="flex items-start justify-between flex-wrap gap-4">
                 <div>
@@ -99,7 +105,7 @@ export default function PerformancePanel() {
                     <p className="text-sm text-slate-500 mt-1">Control rendering, loading, and delivery optimizations for your site.</p>
                     <div className="mt-3 flex items-center gap-3">
                         <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-1.5 text-xs font-bold text-emerald-700">
-                            {enabledCount} / {PERF_FEATURES.length} Optimizations Active
+                            {enabledCount} / {PERF_FEATURES.length} Options Requested
                         </div>
                         {/* Score bar */}
                         <div className="flex-1 max-w-[200px] h-2 bg-slate-100 rounded-full overflow-hidden">
@@ -118,7 +124,7 @@ export default function PerformancePanel() {
                     )}
                     <button
                         onClick={handleSave}
-                        disabled={saving}
+                        disabled={saving || loading || !ready || !selectedSite}
                         className={`h-9 px-4 rounded-xl text-xs font-bold text-white shadow transition ${saved ? "bg-emerald-600" : "bg-slate-900 hover:bg-slate-700"} disabled:opacity-50`}
                     >
                         {saving ? "Saving…" : saved ? "✓ Saved" : "Save Settings"}

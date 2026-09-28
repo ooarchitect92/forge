@@ -1,3 +1,4 @@
+import { documentObject, preservePublishingAuthority, validateDocumentTree } from "./document-policy.js";
 import { randomUUID } from "crypto";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../config/prisma.js";
@@ -13,6 +14,8 @@ type Input = { userId: string; name: string; slug?: string; editorData?: Prisma.
  */
 export async function createPersonalWebsite(input: Input) {
   const name = boundedName(input.name, "Website name");
+  const editorData = input.editorData === undefined ? {version: 1, elements: []} : preservePublishingAuthority({}, documentObject(input.editorData));
+  validateDocumentTree(editorData);
   const slug = input.slug ?? `website-${randomUUID()}`;
   if (!/^[a-z0-9][a-z0-9-]{0,199}$/.test(slug)) throw new AppError("Invalid website slug", 400, "INVALID_SLUG");
   for (let attempt = 0; ; attempt++) {
@@ -44,7 +47,7 @@ export async function createPersonalWebsite(input: Input) {
         await requireWorkspace(tx, workspace.id, input.userId, true);
         const website = await tx.website.create({ data: {
           userId: input.userId, organizationId: organization.id, workspaceId: workspace.id,
-          name, slug, status: "DRAFT", editorData: input.editorData ?? { version: 1, elements: [] },
+          name, slug, status: "DRAFT", editorData: editorData as Prisma.InputJsonObject,
         } });
         await tx.auditLog.create({ data: {
           userId: input.userId, action: "PERSONAL_WEBSITE_CREATED", targetResource: `website:${website.id}`,

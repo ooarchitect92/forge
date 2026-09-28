@@ -103,6 +103,50 @@ with sync_playwright() as playwright:
         record("workspace.browser.unrelated-actor", since)
         owner.screenshot(path=str(output / "workspace-settings.png"), full_page=True)
         member.screenshot(path=str(output / "workspace-member.png"), full_page=True)
+
+        since = time.monotonic()
+        panel.get_by_label("New website name", exact=True).fill("Browser save contract")
+        panel.get_by_role("button", name="Create in this workspace", exact=True).click()
+        site_row = panel.get_by_role("listitem").filter(has_text="Browser save contract")
+        expect(site_row).to_have_count(1)
+        site_row.get_by_role("button", name="Open website", exact=True).click()
+        owner.wait_for_url(re.compile(r"/editor/[a-f0-9-]+"))
+        website_id = urlparse(owner.url).path.split("/")[-1]
+        expect(owner.get_by_role("button", name="Save", exact=True)).to_be_enabled(timeout=30000)
+        with owner.expect_response(lambda response: response.request.method == "PUT" and
+                response.url.endswith("/api/websites/" + website_id)) as saving:
+            owner.get_by_role("button", name="Save", exact=True).click()
+        saved = saving.value
+        if saved.status != 200 or saved.json().get("website", {}).get("documentVersion", 0) < 1:
+            raise AssertionError("Compiled editor did not receive a valid versioned save acknowledgement")
+        record("document.browser.versioned-save", since)
+
+        since = time.monotonic()
+        # A second tab loads a version, then a real independent command commits.
+        # The stale tab must display a conflict, not silently overwrite that edit.
+        stale = owner_context.new_page()
+        stale.goto(base + "/editor/" + website_id, wait_until="domcontentloaded")
+        expect(stale.get_by_role("button", name="Save", exact=True)).to_be_enabled(timeout=30000)
+        canonical = owner_context.request.get("http://localhost:5000/api/websites/" + website_id)
+        document = canonical.json()["website"]
+        external = owner_context.request.put("http://localhost:5000/api/websites/" + website_id,
+            headers={"X-Forge-Intent": "document-command", "If-Match": canonical.headers["etag"],
+                "Idempotency-Key": "browser-concurrent-document-001"},
+            data={"name": "Changed by another command"})
+        if external.status != 200:
+            raise AssertionError("Independent versioned document command failed")
+        with stale.expect_response(lambda response: response.request.method == "PUT" and
+                response.url.endswith("/api/websites/" + website_id)) as rejected:
+            stale.get_by_role("button", name="Save", exact=True).click()
+        if rejected.value.status != 412:
+            raise AssertionError("Stale editor save was not rejected with a precondition conflict")
+        expect(stale.get_by_role("alert").filter(has_text="changed after you loaded")).to_be_visible()
+        persisted = owner_context.request.get("http://localhost:5000/api/websites/" + website_id).json()["website"]
+        if persisted["name"] != "Changed by another command":
+            raise AssertionError("Stale save overwrote the concurrent document")
+        stale.screenshot(path=str(output / "document-conflict.png"), full_page=True)
+        record("document.browser.stale-tab-conflict", since)
+
     except Exception as error:
         try:
             owner.screenshot(path=str(output / "workspace-failure.png"), full_page=True)

@@ -1,3 +1,4 @@
+import { documentWriteContext } from "../services/websites/document-request.js";
 import fs from "fs";
 import path from "path";
 import { createRequire } from "module";
@@ -984,7 +985,7 @@ export async function updateWordPressPageSeoHandler(req: Request, res: Response,
     const websiteId = String(req.params.id);
     const pageId = String(req.params.pageId);
     const userId = res.locals.user?.id;
-    const updated = await updateWordPressPageSeo(websiteId, pageId, req.body || {}, userId);
+    const updated = await updateWordPressPageSeo(websiteId, pageId, req.body || {}, userId, documentWriteContext(req, websiteId));
     return res.status(200).json({ success: true, seo: updated });
   } catch (error) {
     next(error);

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { AutosaveStatus } from "../types/autosave.types";
-import { saveAuthorizedWebsite } from "../../editor-access/save-authorized-website";
+
 import type { EditorElement } from "../../../pages/editor/WebsiteEditor";
 import type { PageSettingsData } from "../../revision-history/types/revisionHistory.types";
 
@@ -21,6 +21,7 @@ interface UseAutosaveParams {
   apiUrl: string;
   isLoadingWebsite: boolean;
   debounceMs?: number;
+  persistDocument: (payload: unknown, signal?: AbortSignal) => Promise<unknown>;
 }
 
 interface SavePayload {
@@ -56,6 +57,7 @@ export function useAutosave({
   apiUrl,
   isLoadingWebsite,
   debounceMs = 1500,
+  persistDocument,
 }: UseAutosaveParams) {
   const [status, setStatus] = useState<AutosaveStatus>("saved");
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
@@ -87,6 +89,7 @@ export function useAutosave({
     popups,
     pageCss,
     apiUrl,
+    persistDocument,
   });
 
   useEffect(() => {
@@ -105,6 +108,7 @@ export function useAutosave({
       popups,
       pageCss,
       apiUrl,
+      persistDocument,
     };
   }, [
     websiteId,
@@ -121,6 +125,7 @@ export function useAutosave({
     popups,
     pageCss,
     apiUrl,
+    persistDocument,
   ]);
 
   /**
@@ -216,7 +221,7 @@ export function useAutosave({
    */
   const performSave = useCallback(
     async (payload: SavePayload) => {
-      const { websiteId: currentWebId, apiUrl: currentApiUrl } = latestPropsRef.current;
+      const { websiteId: currentWebId } = latestPropsRef.current;
 
       if (!currentWebId || !payload || !payload.snapshot) {
         isSavingRef.current = false;
@@ -248,7 +253,7 @@ export function useAutosave({
 
         const controller = new AbortController();
         requestController.current = controller;
-        await saveAuthorizedWebsite(currentApiUrl, currentWebId, bodyPayload, controller.signal);
+        await latestPropsRef.current.persistDocument(bodyPayload, controller.signal);
         if (!mountedRef.current || controller.signal.aborted) return;
         failedSnapshotRef.current = null;
 

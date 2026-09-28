@@ -1,3 +1,4 @@
+import { saveWebsiteDocument, type DocumentWriteContext, type DocumentPatch } from "./websites/save-document.js";
 import { prisma } from "../config/prisma.js";
 import { AppError } from "../utils/app-error.js";
 import { getScopedWebsite, listScopedOwnedWebsites } from "./websites/scoped-access.js";
@@ -517,6 +518,7 @@ export async function getManagedWebsiteDetails(websiteId: string, userId: string
       status: website.status,
       createdAt: website.createdAt,
       updatedAt: website.updatedAt,
+      documentVersion: website.documentVersion,
       pagesCount: Array.isArray(editorData.pages) ? editorData.pages.length : 1,
     },
     wpConnection: wpConnection
@@ -559,7 +561,7 @@ export async function getManagedWebsiteDetails(websiteId: string, userId: string
 /**
  * F-438: Update cookie consent configuration for a website
  */
-export async function updateCookieConsentConfig(websiteId: string, userId: string, config: any) {
+export async function updateCookieConsentConfig(websiteId: string, userId: string, config: any, write?: DocumentWriteContext) {
   const website = await getWebsiteById(websiteId, userId);
   const editorData = typeof website.editorData === "string"
     ? JSON.parse(website.editorData)
@@ -577,7 +579,7 @@ export async function updateCookieConsentConfig(websiteId: string, userId: strin
     theme: config.theme === "light" ? "light" : "dark",
   };
 
-  await updateWebsiteEditorData(websiteId, userId, editorData);
+  await updateWebsiteEditorData(websiteId, userId, editorData, undefined, write);
   return editorData.siteSettings.cookieConsent;
 }
 
@@ -658,249 +660,12 @@ export function validateCanonicalEditorData(data: any): void {
 /**
  * Update general website metadata and attributes
  */
-export async function updateWebsite(
-  websiteId: string,
-  data: { name?: string; slug?: string; editorData?: any; status?: string },
-  userId: string
-) {
-  // Implicit ownership / permission check via getWebsiteById
-  await getWebsiteById(websiteId, userId);
-
-  const updatePayload: any = {};
-  if (data.name !== undefined) updatePayload.name = data.name;
-  if (data.slug !== undefined) updatePayload.slug = data.slug;
-  if (data.status !== undefined) updatePayload.status = data.status;
-  if (data.editorData !== undefined) {
-    validateCanonicalEditorData(data.editorData);
-    updatePayload.editorData = data.editorData;
-  }
-
-  const updated = await prisma.website.update({
-    where: { id: websiteId },
-    data: updatePayload,
-  });
-
-  return updated;
+export async function updateWebsite(websiteId: string, data: DocumentPatch, userId: string, write?: DocumentWriteContext) {
+  return saveWebsiteDocument(websiteId, userId, data, write as DocumentWriteContext);
 }
 
-/**
- * Update editor JSON structure for a website
- */
-export async function updateWebsiteEditorData(
-  websiteId: string,
-  userId: string,
-  editorData: any,
-  performanceSettings?: any
-) {
-  validateCanonicalEditorData(editorData);
-
-  // Ensure website exists and fetch permission boundaries
-  const website = await getWebsiteById(websiteId, userId);
-
-  const canEditDesign = await canUserAccessResource(userId, websiteId, "*", "EDIT_DESIGN");
-  const canEditContent = await canUserAccessResource(userId, websiteId, "*", "EDIT_CONTENT");
-
-  if (!canEditDesign && !canEditContent) {
-    throw new AppError("You do not have permission to edit this component.", 403, "FORBIDDEN");
-  }
-
-  // Safe Component / Content Editing Mode
-  const isWebsiteOwner = website.userId === userId;
-  const isCollaboratorAdmin = (website as unknown as any).userPermission === "ADMIN";
-  const isAdmin = isWebsiteOwner || isCollaboratorAdmin;
-
-  // Retrieve explicitly granted component accesses
-  const explicitAccesses = await prisma.componentAccess.findMany({ where: { websiteId, userId } });
-  const allowedComponentIds = new Set(explicitAccesses.map(a => a.componentId));
-
-  const currentEditorData = typeof website.editorData === "string" ? JSON.parse(website.editorData) : website.editorData;
-
-  const safeMerge = (currentEls: any[], newEls: any[]): any[] => {
-    // 1. We must retain ALL protected components from currentEls, even if newEls omitted them (prevent unauthorized deletion).
-    const mergedEls = [];
-
-    // To handle reordering, we iterate through newEls, but we MUST inject missing protected ones.
-    const allIds = new Set([...currentEls.map(c => c.id), ...newEls.map(n => n.id)]);
-
-    // Actually, preserving order while mixing deleted/kept is tricky.
-    // Let's iterate currentEls. If it's protected, keep it unchanged. If it's not protected, find incoming.
-    for (const cEl of currentEls) {
-      const isProtectedNode = cEl.isProtected === true;
-      const userCanEdit = isAdmin || allowedComponentIds.has(cEl.id);
-
-      // If protected and no rights, strictly preserve untouched.
-      if (isProtectedNode && !userCanEdit) {
-        mergedEls.push(cEl);
-        continue;
-      }
-
-      const incoming = newEls.find(n => n.id === cEl.id);
-
-      // If deleted by user
-      if (!incoming) {
-        // If restricted role (!canEditDesign && canEditContent), deletion is forbidden - preserve element
-        if (!canEditDesign && canEditContent) {
-          mergedEls.push(cEl);
-          continue;
-        }
-        // It's allowed to be deleted because they have rights.
-        continue;
-      }
-
-      // If !canEditDesign && canEditContent (Content-Only Sandbox / Client Mode)
-      if (!canEditDesign && canEditContent) {
-        if (incoming.content !== undefined) cEl.content = incoming.content;
-        if (incoming.text !== undefined) cEl.text = incoming.text;
-        if (incoming.src !== undefined) cEl.src = incoming.src;
-        if (incoming.image_asset_id !== undefined) cEl.image_asset_id = incoming.image_asset_id;
-        if (incoming.alt !== undefined) cEl.alt = incoming.alt;
-        if (incoming.href !== undefined) cEl.href = incoming.href;
-        if (incoming.settings?.href !== undefined) {
-          cEl.settings = { ...(cEl.settings || {}), href: incoming.settings.href };
-        }
-      } else {
-        // Full design rights! Merge everything (classes, styles, etc).
-        Object.assign(cEl, incoming);
-      }
-
-      // Recurse children
-      if (cEl.children) {
-        cEl.children = safeMerge(cEl.children, incoming.children || []);
-      }
-
-      mergedEls.push(cEl);
-    }
-
-    // Now append any newly created elements that didn't exist in currentEls (only if user has design rights)
-    if (canEditDesign) {
-      for (const nEl of newEls) {
-        if (!currentEls.find(c => c.id === nEl.id)) {
-          mergedEls.push(nEl);
-        }
-      }
-    }
-
-    return mergedEls;
-  };
-
-  const safeElements = safeMerge(currentEditorData.elements || [], editorData.elements || []);
-  const safePopups = (currentEditorData.popups || []).map((p: any) => {
-    const incomingP = (editorData.popups || []).find((ip: any) => ip.id === p.id);
-    if (incomingP && p.elements && incomingP.elements) {
-      p.elements = safeMerge(p.elements, incomingP.elements);
-    }
-    return p;
-  });
-
-  // Preserve multi-page pages and site parts safely without data loss
-  let safePages = editorData.pages;
-  if (Array.isArray(editorData.pages) && editorData.pages.length > 0) {
-    const currentPages = Array.isArray(currentEditorData.pages) ? currentEditorData.pages : [];
-    safePages = editorData.pages.map((p: any) => {
-      const currentP = currentPages.find((cp: any) => cp.id === p.id);
-      if (currentP && Array.isArray(currentP.elements) && Array.isArray(p.elements)) {
-        return {
-          ...p,
-          elements: safeMerge(currentP.elements, p.elements),
-        };
-      }
-      return p;
-    });
-  } else if (currentEditorData.pages) {
-    safePages = currentEditorData.pages;
-  }
-
-  // Preserve siteParts (header and footer)
-  let safeSiteParts = editorData.siteParts || currentEditorData.siteParts;
-  if (safeSiteParts) {
-    safeSiteParts = {
-      ...(currentEditorData.siteParts || {}),
-      ...(editorData.siteParts || {}),
-    };
-    if (editorData.siteParts?.header && currentEditorData.siteParts?.header?.elements && editorData.siteParts.header.elements) {
-      safeSiteParts.header = {
-        ...editorData.siteParts.header,
-        elements: safeMerge(currentEditorData.siteParts.header.elements, editorData.siteParts.header.elements),
-      };
-    }
-    if (editorData.siteParts?.footer && currentEditorData.siteParts?.footer?.elements && editorData.siteParts.footer.elements) {
-      safeSiteParts.footer = {
-        ...editorData.siteParts.footer,
-        elements: safeMerge(currentEditorData.siteParts.footer.elements, editorData.siteParts.footer.elements),
-      };
-    }
-  }
-
-  editorData = {
-    ...currentEditorData,
-    ...editorData,
-    elements: safeElements,
-    popups: safePopups,
-    ...(safePages !== undefined ? { pages: safePages } : {}),
-    ...(safeSiteParts !== undefined ? { siteParts: safeSiteParts } : {}),
-  };
-
-  try {
-    const isPublishing = editorData.publishing?.status === "PUBLISHED";
-    if (db?.website?.update) {
-      const updateData: any = {
-        editorData,
-        updatedAt: new Date(),
-        ...(isPublishing ? { status: "PUBLISHED" } : {}),
-      };
-      if (performanceSettings !== undefined) {
-        updateData.performanceSettings = performanceSettings;
-      }
-      const updated = await db.website.update({
-        where: { id: websiteId },
-        data: updateData,
-      });
-      return updated;
-    }
-
-    const jsonStr = JSON.stringify(editorData);
-    let updated: any[];
-
-    if (performanceSettings !== undefined) {
-      const perfStr = JSON.stringify(performanceSettings);
-      if (isPublishing) {
-        updated = await prisma.$queryRaw`
-           UPDATE websites
-           SET "editorData" = ${jsonStr}::jsonb, "performanceSettings" = ${perfStr}::jsonb, status = 'PUBLISHED', "updatedAt" = NOW()
-           WHERE id = ${websiteId}::uuid
-           RETURNING id, "userId", name, slug, status, "editorData", "performanceSettings", "createdAt", "updatedAt"
-         `;
-      } else {
-        updated = await prisma.$queryRaw`
-           UPDATE websites
-           SET "editorData" = ${jsonStr}::jsonb, "performanceSettings" = ${perfStr}::jsonb, "updatedAt" = NOW()
-           WHERE id = ${websiteId}::uuid
-           RETURNING id, "userId", name, slug, status, "editorData", "performanceSettings", "createdAt", "updatedAt"
-         `;
-      }
-    } else {
-      if (isPublishing) {
-        updated = await prisma.$queryRaw`
-           UPDATE websites
-           SET "editorData" = ${jsonStr}::jsonb, status = 'PUBLISHED', "updatedAt" = NOW()
-           WHERE id = ${websiteId}::uuid
-           RETURNING id, "userId", name, slug, status, "editorData", "performanceSettings", "createdAt", "updatedAt"
-         `;
-      } else {
-        updated = await prisma.$queryRaw`
-           UPDATE websites
-           SET "editorData" = ${jsonStr}::jsonb, "updatedAt" = NOW()
-           WHERE id = ${websiteId}::uuid
-           RETURNING id, "userId", name, slug, status, "editorData", "performanceSettings", "createdAt", "updatedAt"
-         `;
-      }
-    }
-
-    return updated[0];
-  } catch (error) {
-    console.error("Error updating website editor data:", error);
-    throw new AppError("Failed to save website changes", 500, "SAVE_FAILED");
-  }
+export async function updateWebsiteEditorData(websiteId: string, userId: string, editorData: unknown, performanceSettings?: unknown, write?: DocumentWriteContext) {
+  return saveWebsiteDocument(websiteId, userId, { editorData, performanceSettings }, write as DocumentWriteContext);
 }
 
 /**
@@ -1529,9 +1294,7 @@ export async function getPublicWebsiteById(websiteId: string): Promise<PublicWeb
     : (website.editorData || {});
 
   // Check authoritative publishing state (Comment 9)
-  const isPublished =
-    website.status === "PUBLISHED" ||
-    rawEditorData?.publishing?.status === "PUBLISHED";
+  const isPublished = website.status === "PUBLISHED";
 
   if (!isPublished) {
     throw new AppError("This website is unavailable.", 404, "NOT_FOUND");
@@ -1547,12 +1310,13 @@ export async function getPublicWebsiteById(websiteId: string): Promise<PublicWeb
   }
 
   // Fallback to publishedData or working editorData (Comment 12)
-  let sourceData = activeReleaseSnapshot || rawEditorData.publishedData || rawEditorData;
+  let sourceData = activeReleaseSnapshot || rawEditorData.publishedData;
+  if (!sourceData) throw new AppError("This website has no verified published snapshot.", 404, "NOT_FOUND");
   if (typeof sourceData === "string") {
     try {
       sourceData = JSON.parse(sourceData);
     } catch (_e) {
-      sourceData = rawEditorData;
+      throw new AppError("This website is unavailable.", 404, "NOT_FOUND");
     }
   }
 

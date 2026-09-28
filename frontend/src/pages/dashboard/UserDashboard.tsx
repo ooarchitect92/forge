@@ -1,3 +1,4 @@
+import { saveAuthorizedWebsite } from "../../features/editor-access/save-authorized-website";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
@@ -251,17 +252,9 @@ function UserDashboard() {
       }
 
       const newSiteId = data.website.id;
-      await fetch(`${apiUrl}/api/websites/${newSiteId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          editorData: {
-            elements: mainPage.elements || [],
-            pageSettings: mainPage.pageSettings || { title: siteName },
-          },
-        }),
-      });
+      await saveAuthorizedWebsite(apiUrl, newSiteId, {
+        editorData: {elements: mainPage.elements || [], pageSettings: mainPage.pageSettings || {title: siteName}},
+      }, {expectedVersion: data.website.documentVersion, key: crypto.randomUUID()});
 
       setIsImportKitOpen(false);
       navigate(`/editor/${newSiteId}`);

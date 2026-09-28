@@ -1,3 +1,4 @@
+import type { DocumentWriteContext } from "../websites/save-document.js";
 /**
  * WordPress SEO API Connector & Validation Service (F-502)
  *
@@ -231,7 +232,8 @@ export async function updateWordPressPageSeo(
   websiteId: string,
   pageId: string,
   metadata: NormalizedSeoMetadata,
-  userId: string
+  userId: string,
+  write?: DocumentWriteContext
 ): Promise<NormalizedSeoMetadata> {
   const validation = validateNormalizedSeo(metadata);
   if (!validation.valid) {
@@ -272,7 +274,7 @@ export async function updateWordPressPageSeo(
   }
 
   editorData.pages = updatedPages;
-  await updateWebsiteEditorData(websiteId, userId, editorData);
+  await updateWebsiteEditorData(websiteId, userId, JSON.parse(JSON.stringify(editorData)), undefined, write);
 
   return validation.sanitized;
 }

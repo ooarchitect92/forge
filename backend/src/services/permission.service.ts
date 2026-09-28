@@ -2,7 +2,8 @@ import type { Request, Response, NextFunction } from "express";
 import { prisma } from "../config/prisma.js";
 import { AppError } from "../utils/app-error.js";
 import { getWebsiteById } from "./website.service.js";
-import { isKnownCapability, relatedCapabilities, roleGrants } from "./permissions/capabilities.js";
+import { effectiveCapability } from "./permissions/effective-capability.js";
+import { isKnownCapability, relatedCapabilities } from "./permissions/capabilities.js";
 export { DEFAULT_CAPABILITIES } from "./permissions/capabilities.js";
 
 export async function canUserAccessResource(
@@ -22,9 +23,7 @@ export async function canUserAccessResource(
     });
     // An explicit deny (or unknown persisted effect) cannot be widened by a
     // narrower ALLOW, an owner shortcut or a legacy capability alias.
-    if (overrides.some((override) => override.effect !== "ALLOW")) return false;
-    if (overrides.some((override) => override.capability === capability)) return true;
-    return roleGrants(role, capability);
+    return effectiveCapability({ role, archived: website.workspaceStatus === "ARCHIVED", resourceId, capability, overrides });
   } catch {
     // Includes unavailable/missing permission tables: never fall through to
     // role defaults when the authoritative override state is unknown.

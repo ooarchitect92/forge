@@ -1,3 +1,4 @@
+import { documentWriteContext } from "../services/websites/document-request.js";
 import type { Request, Response, NextFunction } from "express";
 import { getWebsiteById, updateWebsiteEditorData } from "../services/website.service.js";
 import {
@@ -282,7 +283,7 @@ export async function saveWebsiteSeoHandler(
       });
     }
 
-    const updatedWebsite = await updateWebsiteEditorData(websiteId, user.id, editorData);
+    const updatedWebsite = await updateWebsiteEditorData(websiteId, user.id, editorData, undefined, documentWriteContext(req, websiteId));
 
     return res.status(200).json({
       success: true,

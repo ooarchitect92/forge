@@ -15,7 +15,7 @@ if (!output) throw new Error("An explicit temporary fixture output path is requi
 try {
   if (await prisma.user.count() !== 0) throw new Error("Browser fixture database must be empty");
   await pgPool.query('DROP TABLE IF EXISTS workspace_invitations, workspace_outbox, workspace_command_journal; ALTER TABLE workspaces DROP COLUMN "lifecycleStatus", DROP COLUMN version, DROP COLUMN "archivedAt"');
-  for (const name of ["20260928090000_workspace_command_journal", "20260928122000_workspace_lifecycle"]) {
+  for (const name of ["20260928090000_workspace_command_journal", "20260928122000_workspace_lifecycle", "20260928140000_document_concurrency"]) {
     await pgPool.query(await readFile(`prisma/migrations/${name}/migration.sql`, "utf8"));
   }
   const plan = await prisma.subscriptionPlan.create({ data: {

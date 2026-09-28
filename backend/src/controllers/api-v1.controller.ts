@@ -1,3 +1,5 @@
+import { documentWriteContext } from "../services/websites/document-request.js";
+import { documentETag } from "../services/websites/document-policy.js";
 import type { Request, Response, NextFunction } from "express";
 import {
   getUserWebsites,
@@ -104,7 +106,7 @@ export async function createWebsiteHandler(req: Request, res: Response) {
 }
 
 // 3. Get Website By ID
-export async function getWebsiteByIdHandler(req: Request, res: Response) {
+export async function getWebsiteByIdHandler(req: Request, res: Response, next: NextFunction) {
   try {
     const user = res.locals.user;
     const websiteId = String(req.params.id);
@@ -119,14 +121,16 @@ export async function getWebsiteByIdHandler(req: Request, res: Response) {
       return sendError(res, "NOT_FOUND", "Website not found", 404);
     }
 
+    res.setHeader("ETag", documentETag(website.id, website.documentVersion));
+    res.setHeader("Cache-Control", "no-store");
     return sendSuccess(res, website);
   } catch (err: any) {
-    return sendError(res, "SERVER_ERROR", err.message || "Failed to get website", 500);
+    return next(err);
   }
 }
 
 // 4. Update Website
-export async function updateWebsiteHandler(req: Request, res: Response) {
+export async function updateWebsiteHandler(req: Request, res: Response, next: NextFunction) {
   try {
     const user = res.locals.user;
     const websiteId = String(req.params.id);
@@ -143,10 +147,11 @@ export async function updateWebsiteHandler(req: Request, res: Response) {
     if (editorData !== undefined) updateData.editorData = editorData;
     if (status !== undefined) updateData.status = status;
 
-    const updated = await updateWebsite(websiteId, updateData, user.id);
+    const updated = await updateWebsite(websiteId, updateData, user.id, documentWriteContext(req, websiteId));
+    res.setHeader("ETag", documentETag(updated.id, updated.documentVersion));
     return sendSuccess(res, updated);
   } catch (err: any) {
-    return sendError(res, "SERVER_ERROR", err.message || "Failed to update website", 500);
+    return next(err);
   }
 }
 
@@ -193,7 +198,7 @@ export async function getPagesHandler(req: Request, res: Response) {
 }
 
 // 6. Update Pages
-export async function updatePagesHandler(req: Request, res: Response) {
+export async function updatePagesHandler(req: Request, res: Response, next: NextFunction) {
   try {
     const user = res.locals.user;
     const websiteId = String(req.params.id);
@@ -240,11 +245,12 @@ export async function updatePagesHandler(req: Request, res: Response) {
     }));
 
     editorData.pages = sanitizedPages;
-    const updated = await updateWebsiteEditorData(websiteId, user.id, editorData);
+    const updated = await updateWebsiteEditorData(websiteId, user.id, editorData, undefined, documentWriteContext(req, websiteId));
 
-    return sendSuccess(res, { pages: sanitizedPages });
+    res.setHeader("ETag", documentETag(updated.id, updated.documentVersion));
+    return sendSuccess(res, { pages: sanitizedPages, documentVersion: updated.documentVersion });
   } catch (err: any) {
-    return sendError(res, "SERVER_ERROR", err.message || "Failed to update pages", 500);
+    return next(err);
   }
 }
 

@@ -1,3 +1,4 @@
+import { runDocumentContracts } from "./document-contracts.js";
 import { runWorkspaceLifecycleContracts } from "./workspace-lifecycle.contracts.js";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -138,5 +139,6 @@ test("workspace contracts on disposable PostgreSQL", async (t) => {
     assert.equal((await workspaces.listTenantWorkspaces(member.id)).workspaces.length, 0);
   });
   await runWorkspaceLifecycleContracts(t);
+  await runDocumentContracts(t);
 
 });
