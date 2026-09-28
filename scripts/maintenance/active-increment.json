@@ -4,5 +4,8 @@
   "name": "workspace-lifecycle",
   "parts": ["53648df1e0612c6b721cf27f8c24b48abed4c7d8", "cf0432e2f3870d37e2db5a06c3f41cb4d7d7a08b", "c7f8dfc9f96855f2f6beb4b0f79921fec8e2c927", "1209bdb3858e16ebb0353d8f2e3cdaa5cd704800"],
   "sha256": "550fab9d8af2ef168f6b6e0b6875cc3641a0370b225ef1259f299f25d5697d70",
-  "overrides": [{"path":"tests/browser/workspace-journey.py", "before":"c9689f851d3a3553cd4bae6da4a294e1217f178f", "after":"f79adc418597c010fd6aa6bfec13f82cda7f09b6"}]
+  "overrides": [
+    {"path":"tests/browser/workspace-journey.py", "before":"c9689f851d3a3553cd4bae6da4a294e1217f178f", "after":"f79adc418597c010fd6aa6bfec13f82cda7f09b6"},
+    {"path":"frontend/src/features/workspaces/WorkspaceAdministration.tsx", "before":"4351f82289b037befeacf95011eced050a1695a2", "after":"930f4e55d7b8e098d6ab2bee1cf9a6806d171ea7"}
+  ]
 }
