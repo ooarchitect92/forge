@@ -6,6 +6,7 @@ on:
       - scripts/maintenance/prepare-workspace-integration.mjs
       - scripts/maintenance/workspace-integration.patch.json
       - .github/workflows/prepare-workspace-integration.yml
+      - backend/package.json
   workflow_dispatch:
 permissions:
   contents: read
@@ -48,13 +49,13 @@ jobs:
       - name: Install and build backend
         working-directory: backend
         run: |
-          npm ci
-          npx --no-install prisma generate
+          npm ci 2>&1 | tee "$RUNNER_TEMP/backend-install.log"
+          npx --no-install prisma generate 2>&1 | tee "$RUNNER_TEMP/prisma-generate.log"
           npm run build 2>&1 | tee "$RUNNER_TEMP/backend-build.log"
       - name: Install and build frontend
         working-directory: frontend
         run: |
-          npm ci
+          npm ci 2>&1 | tee "$RUNNER_TEMP/frontend-install.log"
           npm run build 2>&1 | tee "$RUNNER_TEMP/frontend-build.log"
       - name: Execute hardening unit tests
         run: node --experimental-vm-modules --test tests/hardening/*.test.mjs 2>&1 | tee "$RUNNER_TEMP/source-unit.tap"
@@ -74,6 +75,9 @@ jobs:
           name: workspace-integration-${{ github.sha }}
           path: |
             validated-workspace-integration.json
+            ${{ runner.temp }}/backend-install.log
+            ${{ runner.temp }}/frontend-install.log
+            ${{ runner.temp }}/prisma-generate.log
             ${{ runner.temp }}/backend-build.log
             ${{ runner.temp }}/frontend-build.log
             ${{ runner.temp }}/source-unit.tap
