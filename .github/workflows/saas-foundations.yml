@@ -21,6 +21,8 @@ on:
       - frontend/src/features/billing/**
       - frontend/src/features/workspaces/WorkspaceDashboardView.tsx
       - frontend/src/App.tsx
+      - backend/src/tests/fixtures/saas-browser-fixture.ts
+      - tests/browser/saas-foundations-journey.py
       - .github/workflows/saas-foundations.yml
   workflow_dispatch:
 permissions:
