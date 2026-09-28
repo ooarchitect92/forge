@@ -25,7 +25,7 @@ async function testControllerAuthSafeguards() {
   {
     const req: any = { params: { id: "site-123" } };
     const res: any = createMockRes();
-    await getPerformanceMetricsHandler(req, res);
+    await getPerformanceMetricsHandler(req, res, (error?: unknown) => { throw error ?? new Error("Unexpected next call"); });
     assert.strictEqual(res.statusCode, 401, "getPerformanceMetricsHandler should return 401 when unauthenticated");
     assert.strictEqual(res.jsonBody?.success, false);
     console.log("[PASS] getPerformanceMetricsHandler returned 401 on missing req.user");
@@ -35,7 +35,7 @@ async function testControllerAuthSafeguards() {
   {
     const req: any = { params: { id: "site-123" }, body: {} };
     const res: any = createMockRes();
-    await runPerformanceAuditHandler(req, res);
+    await runPerformanceAuditHandler(req, res, (error?: unknown) => { throw error ?? new Error("Unexpected next call"); });
     assert.strictEqual(res.statusCode, 401, "runPerformanceAuditHandler should return 401 when unauthenticated");
     assert.strictEqual(res.jsonBody?.success, false);
     console.log("[PASS] runPerformanceAuditHandler returned 401 on missing req.user");
@@ -45,7 +45,7 @@ async function testControllerAuthSafeguards() {
   {
     const req: any = { params: { id: "site-123" } };
     const res: any = createMockRes();
-    await getOptimizationStatsHandler(req, res);
+    await getOptimizationStatsHandler(req, res, (error?: unknown) => { throw error ?? new Error("Unexpected next call"); });
     assert.strictEqual(res.statusCode, 401, "getOptimizationStatsHandler should return 401 when unauthenticated");
     assert.strictEqual(res.jsonBody?.success, false);
     console.log("[PASS] getOptimizationStatsHandler returned 401 on missing req.user");
@@ -55,7 +55,7 @@ async function testControllerAuthSafeguards() {
   {
     const req: any = { params: { id: "site-123" }, body: {} };
     const res: any = createMockRes();
-    await optimizeImageHandler(req, res);
+    await optimizeImageHandler(req, res, (error?: unknown) => { throw error ?? new Error("Unexpected next call"); });
     assert.strictEqual(res.statusCode, 401, "optimizeImageHandler should return 401 when unauthenticated");
     assert.strictEqual(res.jsonBody?.success, false);
     console.log("[PASS] optimizeImageHandler returned 401 on missing req.user");

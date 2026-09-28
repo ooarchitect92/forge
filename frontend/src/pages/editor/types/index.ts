@@ -504,11 +504,14 @@ export interface ContainerLayout {
   justifyItems?: "stretch" | "start" | "center" | "end";
 
   // Masonry Controls
+  masonryEngine?: string;
   masonryColumns?: number;
   masonryGap?: number | string;
 
   // Scroll Snap & Overflow Controls (F-050)
   scrollSnapType?: string;
+  scrollSnapAlign?: string;
+  scrollSnapStop?: string;
   overflowX?: string;
   overflowY?: string;
 }
