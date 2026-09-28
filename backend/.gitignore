@@ -3,3 +3,6 @@ dist/
 exports/
 scratch_*.ts
 *.log
+
+# Generated from the committed schema by prebuild/predev, never hand-edited.
+src/generated/

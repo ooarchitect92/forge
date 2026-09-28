@@ -1,3 +1,4 @@
+import { postgresFailure } from "../config/postgres-failure.js";
 import { randomUUID } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { AppError } from "../utils/app-error.js";
@@ -17,7 +18,12 @@ export function errorMiddleware(error: unknown, _req: Request, res: Response, ne
     message = error.message;
   } else if (typeof error === "object" && error !== null) {
     const failure = error as { code?: unknown; type?: unknown };
-    if (["P1001", "P1002", "P1008", "P1017", "P2024"].includes(String(failure.code))) {
+    const database = postgresFailure(error);
+    if (database.code === "55000" && database.message === "WORKSPACE_READ_ONLY") {
+      status = 409; code = "WORKSPACE_READ_ONLY"; message = "This workspace is archived and read-only";
+    } else if (database.code === "23514" && ["WORKSPACE_OWNER_REQUIRED", "TENANT_SCOPE_MISMATCH", "RESOURCE_PARENT_IMMUTABLE"].includes(database.message ?? "")) {
+      status = 409; code = "OWNERSHIP_CONFLICT"; message = "The operation would violate resource ownership";
+    } else if (["P1001", "P1002", "P1008", "P1017", "P2024"].includes(String(failure.code))) {
       status = 503; code = "DEPENDENCY_UNAVAILABLE"; message = "The service is temporarily unavailable";
     } else if (failure.type === "entity.too.large") {
       status = 413; code = "PAYLOAD_TOO_LARGE"; message = "The request exceeds the permitted size";

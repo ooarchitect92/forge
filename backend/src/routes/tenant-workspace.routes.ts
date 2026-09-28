@@ -5,7 +5,10 @@ import { requireAuth } from "../middlewares/auth.middleware.js";
 import { AppError } from "../utils/app-error.js";
 import * as workspaces from "../services/workspaces/workspace-api.service.js";
 
+import lifecycleRoutes from "./workspace-lifecycle.routes.js";
+
 const router = Router();
+router.use(lifecycleRoutes);
 const idSchema = z.string().uuid();
 const createSchema = z.object({ name: z.string().trim().min(1).max(100), organizationId: idSchema.optional() }).strict();
 const memberSchema = z.object({ userId: idSchema, role: z.enum(["ADMIN", "MEMBER"]).default("MEMBER") }).strict();
@@ -33,7 +36,7 @@ router.post("/", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 router.get("/:id", async (req, res, next) => {
-  try { res.json({ success: true, workspace: await workspaces.readTenantWorkspace(res.locals.user.id, parse(idSchema, req.params.id)) }); }
+  try { const workspace=await workspaces.readTenantWorkspace(res.locals.user.id, parse(idSchema, req.params.id)); res.setHeader("ETag",`"${workspace.id}:${workspace.version}"`); res.json({ success: true, workspace }); }
   catch (error) { next(error); }
 });
 router.get("/:id/eligible-members", async (req, res, next) => {

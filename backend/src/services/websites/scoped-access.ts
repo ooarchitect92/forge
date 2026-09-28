@@ -7,7 +7,7 @@ type Member = { role: string };
 type AccessRecord = {
   userId: string; organizationId: string | null; workspaceId: string | null;
   organization: { ownerId: string; members: Member[] } | null;
-  workspace: { ownerId: string; organizationId: string | null; members: Member[] } | null;
+  workspace: { ownerId: string; organizationId: string | null; lifecycleStatus?: string; members: Member[] } | null;
   collaborators: Array<{ permission: string }>;
   granularPermissions: Array<{ effect: string }>;
 };
@@ -32,6 +32,7 @@ export function resolveWebsiteRole(website: AccessRecord, actorId: string): stri
         !role || !workspaceRoles.has(role) || (role === "OWNER" && workspace.ownerId !== actorId)) return null;
     inherited = role === "OWNER" ? "OWNER" : role === "ADMIN" ? "ADMIN" : "VIEWER";
   }
+  if (website.workspace?.lifecycleStatus === "ARCHIVED") return "VIEWER";
   const explicit = website.collaborators[0]?.permission;
   if (explicit) {
     if (!Object.hasOwn(DEFAULT_CAPABILITIES, explicit)) return null;
@@ -45,7 +46,7 @@ export function resolveWebsiteRole(website: AccessRecord, actorId: string): stri
 function scopeRelations(actorId: string) {
   return {
     organization: { select: { ownerId: true, members: { where: { userId: actorId }, select: { role: true } } } },
-    workspace: { select: { ownerId: true, organizationId: true, members: { where: { userId: actorId }, select: { role: true } } } },
+    workspace: { select: { ownerId: true, organizationId: true, lifecycleStatus: true, members: { where: { userId: actorId }, select: { role: true } } } },
     collaborators: { where: { userId: actorId }, select: { permission: true } },
     granularPermissions: { where: { userId: actorId, resourceId: "*", capability: "VIEW" }, select: { effect: true } },
   } as const;
@@ -58,7 +59,7 @@ export async function getScopedWebsite(websiteId: string, actorId: string) {
     const role = row && resolveWebsiteRole(row, actorId);
     if (!row || !role) throw new AppError("Website not found or access denied", 404, "WEBSITE_NOT_FOUND");
     const { organization, workspace, collaborators, granularPermissions, ...website } = row;
-    return { ...website, userPermission: role };
+    return { ...website, userPermission: role, workspaceStatus: workspace?.lifecycleStatus ?? "ACTIVE" };
   });
 }
 

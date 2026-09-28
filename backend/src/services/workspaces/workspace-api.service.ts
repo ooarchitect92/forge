@@ -1,3 +1,4 @@
+import { assertWorkspaceWritable, publicWorkspaceSettings } from "./lifecycle-policy.js";
 import { randomUUID } from "crypto";
 import { prisma } from "../../config/prisma.js";
 import { AppError } from "../../utils/app-error.js";
@@ -58,7 +59,7 @@ export async function listTenantWorkspaces(actorId: string) {
     await requireActiveActor(tx, actorId);
     const rows = await tx.workspace.findMany({
       where: { members: { some: { userId: actorId } }, organization: { members: { some: { userId: actorId } } } },
-      select: { id: true, name: true, slug: true, organizationId: true, ownerId: true,
+      select: { id: true, name: true, slug: true, organizationId: true, ownerId: true, lifecycleStatus: true, version: true,
         organization: { select: { id: true, name: true, ownerId: true, members: { where: { userId: actorId }, select: { role: true } } } },
         members: { where: { userId: actorId }, select: { role: true } },
       }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: 101,
@@ -70,7 +71,7 @@ export async function listTenantWorkspaces(actorId: string) {
     });
     return { workspaces: permitted.slice(0,100).map((row) => ({
       id: row.id, name: row.name, slug: row.slug, organizationId: row.organizationId,
-      organizationName: row.organization?.name, userRole: row.members[0]!.role,
+      organizationName: row.organization?.name, userRole: row.members[0]!.role, lifecycleStatus: row.lifecycleStatus, version: row.version,
     })), hasMore: rows.length > 100 };
   });
 }
@@ -90,6 +91,7 @@ export async function readTenantWorkspace(actorId: string, workspaceId: string) 
     });
     return { id: workspace.id, name: workspace.name, slug: workspace.slug, organizationId: organization.id,
       organizationName: organization.name, userRole: membership.role, members,
+      lifecycleStatus: workspace.lifecycleStatus, version: workspace.version, archivedAt: workspace.archivedAt, settings: publicWorkspaceSettings(workspace.settings),
       websites: websites.slice(0,100), hasMoreWebsites: websites.length > 100,
     };
   });
@@ -111,6 +113,7 @@ export async function addTenantWorkspaceMember(actorId: string, workspaceId: str
   return workspaceCommand({ actorId, key, operation: "WORKSPACE_MEMBER_ADDED", payload: { workspaceId, targetUserId, role },
     authorize: async (tx) => {
       const context = await requireWorkspace(tx, workspaceId, actorId, true);
+      assertWorkspaceWritable(context.workspace);
       if (role === "ADMIN" && context.membership.role !== "OWNER") throw new AppError("Only the workspace owner can grant administrator access", 403, "FORBIDDEN");
       await requireActiveActor(tx, targetUserId);
       await requireOrganization(tx, context.organization.id, targetUserId);
@@ -120,6 +123,7 @@ export async function addTenantWorkspaceMember(actorId: string, workspaceId: str
       const existing = await tx.workspaceMember.findUnique({ where: { workspaceId_userId: { workspaceId, userId: targetUserId } } });
       if (existing) throw new AppError("This user is already a workspace member", 409, "MEMBERSHIP_EXISTS");
       await tx.workspaceMember.create({ data: { workspaceId, userId: targetUserId, role } });
+      await tx.workspace.update({where:{id:workspaceId},data:{version:{increment:1}}});
       return { resourceId: workspaceId, success: true };
     },
   });
@@ -138,6 +142,7 @@ export async function removeTenantWorkspaceMember(actorId: string, workspaceId: 
     },
     execute: async (tx) => {
       await tx.workspaceMember.deleteMany({ where: { workspaceId, userId: targetUserId } });
+      await tx.workspace.update({where:{id:workspaceId},data:{version:{increment:1}}});
       return { resourceId: workspaceId, success: true };
     },
   });
@@ -148,6 +153,7 @@ export async function createTenantWorkspaceWebsite(actorId: string, workspaceId:
   return workspaceCommand({ actorId, key, operation: "WORKSPACE_WEBSITE_CREATED", payload: { workspaceId, name },
     authorize: async (tx) => {
       const context = await requireWorkspace(tx, workspaceId, actorId, true);
+      assertWorkspaceWritable(context.workspace);
       return { ...context, organizationId: context.organization.id };
     },
     execute: async (tx, context) => {

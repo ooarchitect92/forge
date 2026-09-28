@@ -1,3 +1,4 @@
+import { WorkspaceInvitationInbox } from "./WorkspaceInvitationInbox";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { workspaceRequest } from "./workspace-api";
@@ -47,7 +48,7 @@ export function WorkspaceSwitcher({ apiUrl, currentWorkspaceId, onSelectWorkspac
       <button type="button" aria-pressed={!currentWorkspaceId} onClick={() => onSelectWorkspace(null)} className="rounded-lg border px-3 py-2 text-xs">My websites</button>
       {workspaces.map((workspace) => <button key={workspace.id} type="button" aria-pressed={currentWorkspaceId === workspace.id}
         title={workspace.organizationName} onClick={() => onSelectWorkspace(workspace.id)}
-        className={`rounded-lg border px-3 py-2 text-xs ${currentWorkspaceId === workspace.id ? "bg-blue-600 text-white" : "bg-white"}`}>{workspace.name}</button>)}
+        className={`rounded-lg border px-3 py-2 text-xs ${currentWorkspaceId === workspace.id ? "bg-blue-600 text-white" : "bg-white"}`}>{workspace.name}{workspace.lifecycleStatus==="ARCHIVED"?" (archived)":""}</button>)}
       <button type="button" onClick={() => setCreating((value) => !value)} className="rounded-lg border px-3 py-2 text-xs">{creating ? "Cancel" : "+ New workspace"}</button>
     </div>
     {creating && <form onSubmit={create} className="flex flex-wrap items-center gap-2">
@@ -55,6 +56,7 @@ export function WorkspaceSwitcher({ apiUrl, currentWorkspaceId, onSelectWorkspac
       <button type="submit" disabled={busy} className="rounded bg-blue-600 px-3 py-1 text-sm text-white">{busy ? "Creating…" : "Create"}</button>
       <span className="text-xs text-slate-500">Creates a workspace in your personal organization.</span>
     </form>}
+    <WorkspaceInvitationInbox apiUrl={apiUrl} onJoined={id=>{setRevision(value=>value+1);onSelectWorkspace(id);}} />
     {hasMore && <p className="text-xs">Showing the first 100 workspaces.</p>}
     {error && <p role="alert" className="text-sm text-red-700">{error} <button type="button" onClick={() => setRevision((value) => value + 1)} className="underline">Reload</button></p>}
   </section>;

@@ -11,6 +11,7 @@ export async function canUserAccessResource(
   if (!userId || !websiteId || !resourceId || !isKnownCapability(capability)) return false;
   try {
     const website = await getWebsiteById(websiteId, userId);
+    if (website.workspaceStatus === "ARCHIVED" && capability !== "VIEW") return false;
     const role = website.userPermission || "REVIEWER";
     const overrides = await prisma.granularPermission.findMany({
       where: {

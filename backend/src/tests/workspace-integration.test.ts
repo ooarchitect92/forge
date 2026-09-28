@@ -1,3 +1,4 @@
+import { runWorkspaceLifecycleContracts } from "./workspace-lifecycle.contracts.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID, createHash } from "node:crypto";
@@ -136,4 +137,6 @@ test("workspace contracts on disposable PostgreSQL", async (t) => {
     await assert.rejects(workspaces.readTenantWorkspace(member.id, firstId), { code: "NOT_FOUND" });
     assert.equal((await workspaces.listTenantWorkspaces(member.id)).workspaces.length, 0);
   });
+  await runWorkspaceLifecycleContracts(t);
+
 });

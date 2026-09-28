@@ -1,3 +1,4 @@
+import { postgresFailure } from "./postgres-failure.js";
 /** Retry only an aborted, local database transaction. Never use this classifier
  * to retry provider calls or an operation whose external outcome is unknown.
  */
@@ -9,7 +10,7 @@ export function isRetryableTransactionConflict(error: unknown): boolean {
     cause?: { kind?: unknown; originalCode?: unknown };
   };
   if (failure.code === "P2034" || failure.code === "P2002") return true;
-  if (failure.code === "P2010") return ["23505", "40001", "40P01"].includes(String(failure.meta?.code));
+  if (failure.code === "P2010") return ["23505", "40001", "40P01"].includes(postgresFailure(error).code ?? "");
   if (failure.name !== "DriverAdapterError") return false;
   const cause = failure.cause;
   if (cause?.kind === "TransactionWriteConflict") {

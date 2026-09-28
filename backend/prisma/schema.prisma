@@ -707,6 +707,9 @@ model WebsiteInvitation {
 }
 
 model Workspace {
+  lifecycleStatus String @default("ACTIVE") @db.VarChar(20)
+  version Int @default(1)
+  archivedAt DateTime? @db.Timestamptz(6)
   id             String            @id @default(uuid()) @db.Uuid
   organizationId String?           @db.Uuid
   name           String            @db.VarChar(255)
@@ -1037,3 +1040,21 @@ model BillingInvoice {
 
 
 
+
+// Scalar ownership fields are enforced by composite foreign keys in SQL.
+model WorkspaceInvitation {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String @db.Uuid
+  workspaceId String @db.Uuid
+  recipientUserId String @db.Uuid
+  invitedBy String @db.Uuid
+  role String @db.VarChar(20)
+  status String @default("PENDING") @db.VarChar(20)
+  version Int @default(1)
+  expiresAt DateTime @db.Timestamptz(6)
+  acceptedAt DateTime? @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @db.Timestamptz(6)
+  @@index([organizationId, recipientUserId, status])
+  @@map("workspace_invitations")
+}
