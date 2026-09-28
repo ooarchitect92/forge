@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "repository": "ooarchitect92/forge",
+  "qualificationRevision": 3,
   "parts": [
     "2054a12244c0f2ae3e44a0d7d3a87e7caaf6549a",
     "c8e82f3fbd27969b2f0c30d1af0ff08f14a87d19",
