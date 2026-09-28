@@ -21,7 +21,7 @@ export async function scanWithClamAv(buffer:Buffer):Promise<{clean:boolean;detai
       }
       socket.write(Buffer.alloc(4));
     });
-    socket.on("data",(data)=>chunks.push(data));
+    socket.on("data",(data)=>chunks.push(Buffer.isBuffer(data) ? data : Buffer.from(data)));
     socket.on("error",(error)=>{clearTimeout(timer);reject(new AppError("Malware scanner connection failed",503,"MALWARE_SCANNER_UNAVAILABLE"));});
     socket.on("end",()=>{
       clearTimeout(timer);
