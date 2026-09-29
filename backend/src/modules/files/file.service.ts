@@ -81,7 +81,7 @@ async function malwareScan(bytes:Buffer):Promise<{clean:boolean;detail:string}>{
   if(!endpoint) return {clean:false,detail:"scanner-not-configured"};
   const parsed=new URL(endpoint);
   if(parsed.protocol!=="https:"&&process.env.NODE_ENV==="production") return {clean:false,detail:"scanner-requires-https"};
-  const response=await fetch(parsed,{method:"POST",headers:{"Content-Type":"application/octet-stream","Content-Length":String(bytes.length)},body:bytes,signal:AbortSignal.timeout(30000),redirect:"error"});
+  const response=await fetch(parsed,{method:"POST",headers:{"Content-Type":"application/octet-stream","Content-Length":String(bytes.length)},body:new Uint8Array(bytes),signal:AbortSignal.timeout(30000),redirect:"error"});
   if(!response.ok) return {clean:false,detail:`scanner-http-${response.status}`};
   const result=await response.json() as Record<string,unknown>;
   return {clean:result.clean===true,detail:String(result.detail|| (result.clean===true?"clean":"rejected")).slice(0,900)};
