@@ -560,7 +560,13 @@ function UserDashboard() {
       <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200 shadow-sm">
         <div className="mx-auto max-w-[1400px] px-4 sm:px-8 h-14 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="lg:hidden p-2 rounded-lg hover:bg-slate-100 transition">
+            <button
+              type="button"
+              aria-label={sidebarOpen ? "Close navigation menu" : "Open navigation menu"}
+              aria-expanded={sidebarOpen}
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="lg:hidden p-2 rounded-lg hover:bg-slate-100 transition"
+            >
               <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect y="3" width="18" height="1.5" rx="1" fill="#64748b" /><rect y="8.25" width="18" height="1.5" rx="1" fill="#64748b" /><rect y="13.5" width="18" height="1.5" rx="1" fill="#64748b" /></svg>
             </button>
             <Link to="/dashboard" className="text-base font-black tracking-tight text-slate-900">ForgeStudio</Link>
