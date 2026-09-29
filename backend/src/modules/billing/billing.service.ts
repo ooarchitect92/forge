@@ -42,6 +42,19 @@ function checkoutRequestHash(planKey: string, successUrl: string, cancelUrl: str
   return createHash("sha256").update(JSON.stringify({ planKey, successUrl, cancelUrl })).digest("hex");
 }
 
+export async function listOrganizationPlans(organizationId: string, actorId: string) {
+  await assertBillingManager(organizationId, actorId);
+  let catalog: Record<string, any>;
+  try { catalog = JSON.parse(process.env.FORGE_PLAN_CATALOG_JSON || "{}"); }
+  catch { throw new AppError("Plan catalogue is invalid", 503, "BILLING_CONFIGURATION_INVALID"); }
+  return Object.entries(catalog).flatMap(([key, value]) => {
+    if (!value || typeof value !== "object") return [];
+    const seatLimit = Number(value.seatLimit ?? 1);
+    const quotas = typeof value.quotas === "object" && value.quotas ? value.quotas : {};
+    return [{ key, name: String(value.name || key), description: String(value.description || ""), seatLimit, quotas }];
+  });
+}
+
 export async function getOrganizationBilling(organizationId: string, actorId: string) {
   await assertBillingManager(organizationId, actorId);
   return withTenantTransaction({ organizationId, actorId }, async (client) => {
