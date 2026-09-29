@@ -83,7 +83,7 @@ export async function getS3Object(bucket:string,key:string,maxBytes:number):Prom
 
 export async function putS3Object(bucket:string,key:string,body:Buffer,contentType:string) {
   const url=await presignS3({method:"PUT",bucket,key,expiresSeconds:120});
-  const response=await fetch(url,{method:"PUT",headers:{"Content-Type":contentType,"Content-Length":String(body.length)},body,redirect:"error",signal:AbortSignal.timeout(30000)});
+  const response=await fetch(url,{method:"PUT",headers:{"Content-Type":contentType,"Content-Length":String(body.length)},body:new Uint8Array(body),redirect:"error",signal:AbortSignal.timeout(30000)});
   if (!response.ok) throw new AppError("Object storage write failed",502,"STORAGE_WRITE_FAILED");
 }
 
