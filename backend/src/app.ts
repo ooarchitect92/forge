@@ -70,6 +70,7 @@ import governedFileRoutes from "./services/files/file.routes.js";
 import integrationSecretRoutes from "./services/integrations/secret-reference.routes.js";
 import saasPlatformControlRoutes from "./services/control/control.routes.js";
 import tenantCapabilityRoutes from "./services/capabilities/tenant-capabilities.routes.js";
+import aiRoutes from "./routes/ai.routes.js";
 
 const authRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -279,6 +280,8 @@ app.use("/api/v1/websites", designSystemRoutes);
 app.use("/api/websites", designSystemRoutes);
 app.use("/api/v1/websites", aiHostingRoutes);
 app.use("/api/websites", aiHostingRoutes);
+app.use("/api/v1/ai", aiRoutes);
+app.use("/api/ai", aiRoutes);
 
 // Elementor Cloud Managed Hosting Bundles (X-804)
 app.use("/api/v1/elementor-cloud", elementorCloudRoutes);

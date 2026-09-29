@@ -62,13 +62,13 @@ $$;
 
 CREATE OR REPLACE FUNCTION forge_actor_owns_workspace(scope uuid) RETURNS boolean
 LANGUAGE sql STABLE SECURITY DEFINER
-SET search_path = public, pg_temp AS $
+SET search_path = public, pg_temp AS $$
   SELECT EXISTS (SELECT 1 FROM workspaces w WHERE w.id = scope AND w."ownerId" = forge_actor_uuid())
-$;
+$$;
 
 CREATE OR REPLACE FUNCTION forge_actor_has_workspace_access(scope uuid) RETURNS boolean
 LANGUAGE sql STABLE SECURITY DEFINER
-SET search_path = public, pg_temp AS $
+SET search_path = public, pg_temp AS $$
   SELECT EXISTS (
     SELECT 1 FROM workspaces w
     JOIN workspace_members m ON m."workspaceId" = w.id
@@ -76,11 +76,11 @@ SET search_path = public, pg_temp AS $
       AND m."userId" = forge_actor_uuid()
       AND forge_actor_has_org_access(w."organizationId")
   )
-$;
+$$;
 
 CREATE OR REPLACE FUNCTION forge_actor_can_website(scope uuid) RETURNS boolean
 LANGUAGE sql STABLE SECURITY DEFINER
-SET search_path = public, pg_temp AS $
+SET search_path = public, pg_temp AS $$
   SELECT EXISTS (
     SELECT 1 FROM websites s
     WHERE s.id = scope AND (
@@ -91,7 +91,7 @@ SET search_path = public, pg_temp AS $
         AND (s."workspaceId" IS NULL OR forge_actor_has_workspace_access(s."workspaceId")))
     )
   )
-$;
+$$;
 
 -- Top-level ownership boundaries. Policies accept the explicit tenant context or a
 -- current actor membership; application authorization still decides the action.

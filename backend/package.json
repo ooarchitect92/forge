@@ -11,6 +11,7 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
+    "db:provision-local-test": "tsx scripts/provision-local-agency-test.ts",
     "prebuild": "prisma generate",
     "predev": "prisma generate",
     "db:migrate": "prisma migrate deploy",
