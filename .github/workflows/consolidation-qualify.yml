@@ -35,7 +35,6 @@ jobs:
       NODE_ENV: test
       FRONTEND_URL: http://localhost:5173
       PORT: '5000'
-      CONSOLIDATION_REPORT_DIR: ${{ runner.temp }}/consolidation-evidence
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -43,6 +42,8 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with: {node-version: '22.16.0'}
+      - name: Initialize evidence directory in the allocated runner
+        run: echo "CONSOLIDATION_REPORT_DIR=$RUNNER_TEMP/consolidation-evidence" >> "$GITHUB_ENV"
       - name: Stage exact reviewed two-parent tree without changing refs
         env:
           GH_TOKEN: ${{ github.token }}
