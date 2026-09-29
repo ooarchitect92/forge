@@ -45,15 +45,21 @@ jobs:
       - name: Require the reviewed workspace serialization-retry correction
         run: git merge-base --is-ancestor d5e37a16097d82ed58bc6070e5cdaa022e8b5992 HEAD
       - name: Initialize evidence directory in the allocated runner
-        run: echo "CONSOLIDATION_REPORT_DIR=$RUNNER_TEMP/consolidation-evidence" >> "$GITHUB_ENV"
-      - name: Stage exact reviewed two-parent tree without changing refs
+        run: |
+          mkdir -p "$RUNNER_TEMP/consolidation-evidence"
+          echo "CONSOLIDATION_REPORT_DIR=$RUNNER_TEMP/consolidation-evidence" >> "$GITHUB_ENV"
+      - name: Stage exact reviewed consolidation without changing refs
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/maintenance/stage-consolidation.mjs stage
+        run: |
+          set -euo pipefail
+          # The signed manifest accounts for deletions and additions separately.
+          # Similarity-based rename presentation must not hide either path.
+          git config diff.renames false
+          node scripts/maintenance/stage-consolidation.mjs stage 2>&1 | tee "$CONSOLIDATION_REPORT_DIR/stage.log"
       - name: Install, audit and build the exact candidate
         run: |
           set -euo pipefail
-          mkdir -p "$CONSOLIDATION_REPORT_DIR"
           npm ci --prefix backend
           npm ci --prefix frontend
           npm audit --prefix backend --audit-level moderate --json > "$CONSOLIDATION_REPORT_DIR/backend-audit.json"
