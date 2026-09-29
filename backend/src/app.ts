@@ -58,6 +58,9 @@ import healthRoutes from "./routes/health.routes.js";
 import mailerRoutes from "./routes/mailer.routes.js";
 import clientBillingRoutes from "./routes/clientBilling.routes.js";
 import experimentRoutes from "./routes/experiment.routes.js";
+import organizationBillingRoutes from "./modules/billing/http/routes.js";
+import billingWebhookRoutes from "./modules/billing/http/webhook.routes.js";
+import platformControlRoutes from "./platform/control/routes.js";
 import { rateLimit } from "express-rate-limit";
 
 const authRateLimiter = rateLimit({
@@ -97,6 +100,10 @@ app.use(
   })
 );
 
+// Billing provider signatures are calculated over exact raw bytes. Mount this
+// route before any JSON parser; successful verification never trusts a body-supplied tenant alone.
+app.use("/api/v1/billing/webhooks/stripe", express.raw({ type: "application/json", limit: "256kb" }), billingWebhookRoutes);
+
 const jsonBodyLimit = process.env.JSON_BODY_LIMIT || "10mb";
 app.use(["/api/v1/auth", "/api/auth"], (_req, res, next) => { res.setHeader("Cache-Control", "no-store"); next(); },
   express.json({ limit: "16kb" }));
@@ -127,6 +134,14 @@ app.use("/api/v1/auth", authRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/v1/auth", oauthRoutes);
 app.use("/api/v1/auth", meRoutes);
+
+// Organization-scoped commercial SaaS boundary. Legacy user subscriptions remain
+// available during migration but cannot be used to bypass verified provider state.
+app.use("/api/v1/organizations/:organizationId/billing", organizationBillingRoutes);
+
+// Separate privileged control-plane namespace. The router additionally requires a
+// PLATFORM audience session and privileged role.
+app.use("/api/v1/platform", platformControlRoutes);
 
 // Subscriptions, Licensing, Whitelabel & Usage (F-440 to F-452)
 app.use("/api/v1/subscriptions", subscriptionRoutes);

@@ -13,7 +13,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "prebuild": "prisma generate",
     "predev": "prisma generate",
-    "db:migrate": "prisma migrate deploy"
+    "db:migrate": "prisma migrate deploy",
+    "worker:platform": "node dist/workers/platform-worker.js"
   },
   "keywords": [],
   "author": "",
