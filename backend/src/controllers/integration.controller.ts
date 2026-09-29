@@ -80,6 +80,10 @@ export class IntegrationController {
     try {
       const { webhookUrl, eventType = "onButtonClick", payload, secret } = req.body;
 
+      if (process.env.NODE_ENV === "production" && secret) {
+        return res.status(400).json({ success: false, error: { code: "RAW_CONNECTOR_SECRET_REJECTED", message: "Use a governed connector credential reference instead of sending secrets in requests." } });
+      }
+
       if (!webhookUrl) {
         return res.status(400).json({ success: false, message: "webhookUrl is required" });
       }
@@ -110,6 +114,9 @@ export class IntegrationController {
   public static async testMailchimp(req: Request, res: Response) {
     try {
       const { apiKey, listId, serverPrefix, email, firstName, lastName } = req.body;
+      if (process.env.NODE_ENV === "production") {
+        return res.status(403).json({ success: false, error: { code: "RAW_CONNECTOR_SECRET_REJECTED", message: "Mailchimp test credentials are disabled in production; configure a governed secret reference." } });
+      }
       if (!apiKey || !listId) {
         return res.status(400).json({ success: false, message: "apiKey and listId are required" });
       }
@@ -128,6 +135,9 @@ export class IntegrationController {
   public static async testZapier(req: Request, res: Response) {
     try {
       const { zapierUrl, payload, secret } = req.body;
+      if (process.env.NODE_ENV === "production" && secret) {
+        return res.status(400).json({ success: false, error: { code: "RAW_CONNECTOR_SECRET_REJECTED", message: "Use a governed connector credential reference instead of sending secrets in requests." } });
+      }
       if (!zapierUrl) {
         return res.status(400).json({ success: false, message: "zapierUrl is required" });
       }

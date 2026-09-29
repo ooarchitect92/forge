@@ -1,8 +1,10 @@
 import crypto from "crypto";
 import { dispatchOutboxBatch, leaseJobs, completeJob, failJob, type PlatformJob } from "../platform/reliability/postgres-queue.js";
+import { handleFileScanJob } from "../modules/files/file.service.js";
 
 type Handler = (job: PlatformJob) => Promise<void>;
 const handlers = new Map<string, Handler>();
+handlers.set("file.scan", handleFileScanJob);
 
 export function registerPlatformJobHandler(type: string, handler: Handler) {
   if (!/^[A-Za-z0-9._:-]{1,120}$/.test(type)) throw new Error("Invalid job type");

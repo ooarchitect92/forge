@@ -61,6 +61,8 @@ import experimentRoutes from "./routes/experiment.routes.js";
 import organizationBillingRoutes from "./modules/billing/http/routes.js";
 import billingWebhookRoutes from "./modules/billing/http/webhook.routes.js";
 import platformControlRoutes from "./platform/control/routes.js";
+import organizationFileRoutes from "./modules/files/http/routes.js";
+import connectorCredentialRoutes from "./platform/integrations/connector-credential.routes.js";
 import { rateLimit } from "express-rate-limit";
 
 const authRateLimiter = rateLimit({
@@ -172,6 +174,12 @@ app.use("/api/v1/teams", teamRoutes);
 app.use("/api/teams", teamRoutes);
 app.use("/api/v1/workspaces", teamRoutes);
 app.use("/api/workspaces", teamRoutes);
+
+// Organization-scoped, quarantine-first object storage API.
+app.use("/api/v1/organizations/:organizationId/files", organizationFileRoutes);
+
+// Governed connector credential references. Secret values are never returned by this API.
+app.use("/api/v1/organizations/:organizationId/connectors/credentials", connectorCredentialRoutes);
 
 // Media & Uploads
 app.use("/api/v1/uploads", uploadRoutes);

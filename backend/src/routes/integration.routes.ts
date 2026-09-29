@@ -12,7 +12,7 @@ router.post("/paypal/capture-order", IntegrationController.capturePayPalOrder);
 router.post("/stripe/create-checkout-session", IntegrationController.createStripeCheckoutSession);
 router.get("/dynamic-data/fetch", IntegrationController.fetchDynamicData);
 router.post("/crm/submit-lead", IntegrationController.submitLeadToCRM);
-router.post("/webhook/dispatch", IntegrationController.dispatchWebhook);
+router.post("/webhook/dispatch", requireAuth, IntegrationController.dispatchWebhook);
 
 // Admin / Test Endpoints (Require Auth)
 router.post("/google-sheets/test", requireAuth, IntegrationController.testGoogleSheets);

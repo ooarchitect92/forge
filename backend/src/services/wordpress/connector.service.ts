@@ -12,6 +12,7 @@ import { canUserAccessResource } from "../permission.service.js";
 import { createRevision } from "../revision.service.js";
 import { transformPageToWordPress, transformPageToHTML, computeHtmlHash, sanitizeHtml, parseWordPressContentToElements, TransformedWordPressPage, TransformedHtmlPage } from "./transformer.service.js";
 import { assertSafeUrl } from "../../utils/ssrf.guard.js";
+import { safeEgressRequest, parseJsonEgress } from "../../platform/integrations/safe-egress.js";
 import { enqueueJob, getJobById, listJobs, cancelJob, retryJob, processNextJob } from "../jobs/jobRunner.js";
 
 const db = prisma as any;
@@ -142,7 +143,7 @@ export async function sendSignedWordPressRequest(
   apiKeyHash: string,
   bodyData?: any
 ): Promise<any> {
-  const cleanUrl = siteUrl.replace(/\/+$/, "");
+  const cleanUrl = validateAndNormalizeWordPressUrl(siteUrl);
   const targetUrl = `${cleanUrl}/wp-json/forgestudio/v1${endpointPath}`;
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const rawBody = bodyData ? JSON.stringify(bodyData) : "";
@@ -153,24 +154,26 @@ export async function sendSignedWordPressRequest(
     "X-ForgeStudio-Timestamp": timestamp,
     "X-ForgeStudio-Signature": signature,
     "X-ForgeStudio-Token": apiKeyHash,
+    "User-Agent": "ForgeStudio-WordPress/2.0",
   };
 
   try {
-    const res = await fetch(targetUrl, {
+    const response = await safeEgressRequest({
+      url: targetUrl,
       method,
       headers,
       body: method !== "GET" ? rawBody : undefined,
-      signal: AbortSignal.timeout(4000),
+      timeoutMs: 4000,
+      maxResponseBytes: 2 * 1024 * 1024,
+      allowedPorts: process.env.NODE_ENV === "production" ? [443] : [443, 80],
+      allowHttp: process.env.NODE_ENV !== "production",
     });
-
-    if (!res.ok) {
-      return { success: false, status: res.status, message: `HTTP error ${res.status}` };
+    if (response.status < 200 || response.status >= 300) {
+      return { success: false, status: response.status, message: `HTTP error ${response.status}` };
     }
-
-    const json = await res.json();
-    return json;
+    return parseJsonEgress<any>(response);
   } catch (err: any) {
-    return { success: false, message: err.message || "Remote destination unreachable" };
+    return { success: false, message: err?.message || "Remote destination unreachable", code: err?.code };
   }
 }
 

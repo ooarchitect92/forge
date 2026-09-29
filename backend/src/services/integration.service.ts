@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import dns from "node:dns/promises";
 import net from "node:net";
+import { safeEgressRequest, parseJsonEgress } from "../platform/integrations/safe-egress.js";
 
 interface CacheEntry {
   data: unknown;
@@ -276,12 +277,16 @@ export class IntegrationService {
     if (cached && now - cached.timestamp < CACHE_TTL_MS) return cached.data;
     if (cached) DYNAMIC_DATA_CACHE.delete(cacheKey);
 
-    const response = await fetch(safeUrl, {
-      headers: { Accept: "application/json", "User-Agent": "ForgeStudio-Integration/1.0" },
-      redirect: "error", signal: withTimeout(),
+    const response = await safeEgressRequest({
+      url: safeUrl.toString(),
+      method: "GET",
+      headers: { Accept: "application/json", "User-Agent": "ForgeStudio-Integration/2.0" },
+      timeoutMs: REQUEST_TIMEOUT_MS,
+      maxResponseBytes: MAX_RESPONSE_BYTES,
+      allowedPorts: process.env.NODE_ENV === "production" ? [443] : [443, 80],
+      allowHttp: process.env.NODE_ENV !== "production",
     });
-    if (!response.ok) throw new Error(`External API responded with status ${response.status}`);
-    const json = await readJsonResponse(response);
+    const json = parseJsonEgress<any>(response);
     let value: unknown = json;
     if (normalizedPath) {
       const parts = normalizedPath.split(".").filter(Boolean);
@@ -332,48 +337,33 @@ export class IntegrationService {
     const bodyData = { eventId, eventType: normalizedEvent, timestamp, data: payload ?? {} };
     const body = JSON.stringify(bodyData);
     const signature = secret ? crypto.createHmac("sha256", secret).update(body).digest("hex") : "";
-    const response = await fetch(safeUrl, {
-      method: "POST", headers: {
-        "Content-Type": "application/json", "User-Agent": "ForgeStudio-Webhook/1.0",
+    const response = await safeEgressRequest({
+      url: safeUrl.toString(), method: "POST",
+      headers: {
+        "Content-Type": "application/json", "User-Agent": "ForgeStudio-Webhook/2.0",
         ...(signature ? { "X-ForgeStudio-Signature": signature } : {}),
         "X-ForgeStudio-Event": normalizedEvent, "X-ForgeStudio-Event-Id": eventId,
       },
-      body, redirect: "error", signal: withTimeout(),
+      body, timeoutMs: REQUEST_TIMEOUT_MS, maxResponseBytes: 512 * 1024,
+      allowedPorts: process.env.NODE_ENV === "production" ? [443] : [443, 80], allowHttp: process.env.NODE_ENV !== "production",
     });
-    return { success: response.ok, status: response.status, eventId, message: response.ok ? "Webhook dispatched successfully" : `Webhook server returned status ${response.status}` };
+    const ok=response.status>=200&&response.status<300;
+    return { success: ok, status: response.status, eventId, message: ok ? "Webhook dispatched successfully" : `Webhook server returned status ${response.status}` };
   }
 
-  public static async syncToGoogleSheets(
-    config: { webhookUrl: string },
-    rowData: Record<string, unknown>
-  ) {
+  public static async syncToGoogleSheets(config: { webhookUrl: string }, rowData: Record<string, unknown>) {
     if (!config?.webhookUrl) throw new Error("Google Sheets Webhook URL is required");
     const safeUrl = await assertSafeExternalUrl(config.webhookUrl);
     const timestamp = new Date().toISOString();
-    const payload = {
-      timestamp,
-      submittedAt: timestamp,
-      ...rowData,
-    };
-    const response = await fetch(safeUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": "ForgeStudio-GoogleSheets/1.0",
-      },
-      body: JSON.stringify(payload),
-      redirect: "follow",
-      signal: withTimeout(15000),
+    const payload = { timestamp, submittedAt: timestamp, ...rowData };
+    const response = await safeEgressRequest({
+      url: safeUrl.toString(), method: "POST",
+      headers: { "Content-Type": "application/json", "User-Agent": "ForgeStudio-GoogleSheets/2.0" },
+      body: JSON.stringify(payload), timeoutMs: 15000, maxResponseBytes: 512 * 1024,
+      allowedPorts: process.env.NODE_ENV === "production" ? [443] : [443, 80], allowHttp: process.env.NODE_ENV !== "production",
     });
-    if (!response.ok) {
-      throw new Error(`Google Sheets endpoint returned HTTP ${response.status}`);
-    }
-    return {
-      success: true,
-      provider: "google_sheets",
-      timestamp,
-      rowsAppended: 1,
-    };
+    if (response.status < 200 || response.status >= 300) throw new Error(`Google Sheets endpoint returned HTTP ${response.status}`);
+    return { success: true, provider: "google_sheets", timestamp, rowsAppended: 1 };
   }
 
   public static async syncToMailchimp(
@@ -383,88 +373,45 @@ export class IntegrationService {
     const { apiKey, listId } = config || {};
     if (!apiKey || !listId) throw new Error("Mailchimp API Key and List ID are required");
     if (!/^\S+@\S+\.\S+$/.test(contact.email)) throw new Error("Invalid email address for Mailchimp sync");
-
     const serverPrefix = config.serverPrefix || apiKey.split("-")[1] || "us1";
+    if (!/^[a-z0-9-]{2,20}$/i.test(serverPrefix)) throw new Error("Invalid Mailchimp server prefix");
+    if (!/^[A-Za-z0-9_-]{1,100}$/.test(listId)) throw new Error("Invalid Mailchimp list ID");
     const subscriberHash = crypto.createHash("md5").update(contact.email.toLowerCase().trim()).digest("hex");
     const url = `https://${serverPrefix}.api.mailchimp.com/3.0/lists/${listId}/members/${subscriberHash}`;
 
-    const mergeFields: Record<string, unknown> = {
-      ...(contact.mergeFields || {}),
-    };
+    const mergeFields: Record<string, unknown> = { ...(contact.mergeFields || {}) };
     if (contact.firstName) mergeFields.FNAME = contact.firstName.trim();
     if (contact.lastName) mergeFields.LNAME = contact.lastName.trim();
+    const bodyData = { email_address: contact.email.toLowerCase().trim(), status_if_new: "subscribed", merge_fields: mergeFields, tags: contact.tags || ["ForgeStudio Lead"] };
 
-    const bodyData = {
-      email_address: contact.email.toLowerCase().trim(),
-      status_if_new: "subscribed",
-      merge_fields: mergeFields,
-      tags: contact.tags || ["ForgeStudio Lead"],
-    };
-
-    const response = await fetch(url, {
-      method: "PUT",
-      headers: {
-        Authorization: `Basic ${Buffer.from(`anystring:${apiKey}`).toString("base64")}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(bodyData),
-      signal: withTimeout(15000),
+    const response = await safeEgressRequest({
+      url, method: "PUT",
+      headers: { Authorization: `Basic ${Buffer.from(`anystring:${apiKey}`).toString("base64")}`, "Content-Type": "application/json" },
+      body: JSON.stringify(bodyData), timeoutMs: 15000, maxResponseBytes: 1024 * 1024, allowedPorts: [443],
     });
-
-    const data = await readJsonResponse(response);
-    if (!response.ok) {
-      throw new Error(data?.detail || `Mailchimp sync failed (${response.status})`);
-    }
-
-    return {
-      success: true,
-      provider: "mailchimp",
-      subscriberId: data?.id || subscriberHash,
-      email: contact.email,
-      status: data?.status || "subscribed",
-    };
+    const data = parseJsonEgress<any>(response);
+    return { success: true, provider: "mailchimp", subscriberId: data?.id || subscriberHash, email: contact.email, status: data?.status || "subscribed" };
   }
 
-  public static async dispatchToZapier(
-    zapierUrl: string,
-    payload: Record<string, unknown>,
-    secret?: string
-  ) {
+  public static async dispatchToZapier(zapierUrl: string, payload: Record<string, unknown>, secret?: string) {
     if (!zapierUrl) throw new Error("Zapier Webhook Catch URL is required");
     const safeUrl = await assertSafeExternalUrl(zapierUrl);
     const timestamp = new Date().toISOString();
     const eventId = `zap_${crypto.randomBytes(8).toString("hex")}`;
-    const standardizedPayload = {
-      zapierCatchHook: true,
-      eventId,
-      timestamp,
-      data: payload,
-    };
+    const standardizedPayload = { zapierCatchHook: true, eventId, timestamp, data: payload };
     const body = JSON.stringify(standardizedPayload);
     const signature = secret ? crypto.createHmac("sha256", secret).update(body).digest("hex") : "";
-
-    const response = await fetch(safeUrl, {
-      method: "POST",
+    const response = await safeEgressRequest({
+      url: safeUrl.toString(), method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        "User-Agent": "ForgeStudio-Zapier-Connector/1.0",
-        ...(signature ? { "X-ForgeStudio-Signature": signature } : {}),
-        "X-ForgeStudio-Event-Id": eventId,
+        "Content-Type": "application/json", "User-Agent": "ForgeStudio-Zapier/2.0",
+        ...(signature ? { "X-ForgeStudio-Signature": signature } : {}), "X-ForgeStudio-Event-Id": eventId,
       },
-      body,
-      redirect: "error",
-      signal: withTimeout(15000),
+      body, timeoutMs: 15000, maxResponseBytes: 512 * 1024,
+      allowedPorts: process.env.NODE_ENV === "production" ? [443] : [443,80], allowHttp: process.env.NODE_ENV !== "production",
     });
-
-    if (!response.ok) {
-      throw new Error(`Zapier webhook returned HTTP ${response.status}`);
-    }
-
-    return {
-      success: true,
-      provider: "zapier",
-      eventId,
-      status: response.status,
-    };
+    if (response.status < 200 || response.status >= 300) throw new Error(`Zapier webhook returned HTTP ${response.status}`);
+    return { success: true, provider: "zapier", eventId, status: response.status };
   }
+
 }
