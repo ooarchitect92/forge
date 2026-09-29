@@ -28,6 +28,10 @@ const parts = [
  '1b1b75217e40612d68064bad7aa813f44b6f872a',
  '225f2152be347ea7ccf02a8778595fbcdc9df09e',
 ];
+const reviewedCorrections = [
+ {path:'.github/workflows/saas-foundations.yml', before:'3ca1b101cf42bc1f1d2332ef5a9cf6d3e5e82919', after:'44ba7195b798b8e32807d53f65c72266711e3d02'},
+ {path:'tests/browser/saas-foundations-journey.py', before:'1a25d08a17ed80f7581f8b7fc6bb6a8b1e800e72', after:'8f78fb5a5c2eaab879aee2ec4887998d26ff803f'},
+];
 const root=process.cwd();
 const output=resolve(process.env.RUNNER_TEMP || '/tmp','consolidation-candidate');
 mkdirSync(output,{recursive:true});
@@ -102,6 +106,15 @@ if(mode==='stage'){
  const changed=git('diff','--cached','--name-only','-z').split('\0').filter(Boolean);
  if(changed.length!==p.files.length||changed.some(path=>!seen.has(path)))throw Error('Undeclared staged change');
  for(const f of p.files){if(git('rev-parse',`:${f.path}`)!==f.after)throw Error(`Staged hash mismatch: ${f.path}`);}
+ // Corrections discovered in the preserved failed qualifier are themselves
+ // hash-bound, then rerun through the same full qualification, never bypassed.
+ for(const correction of reviewedCorrections){
+  const f=p.files.find(x=>x.path===correction.path);
+  if(!f||f.after!==correction.before||git('rev-parse',`:${f.path}`)!==correction.before)throw Error('Correction base mismatch');
+  writeFileSync(safePath(f.path),await blob(correction.after));
+  chmodSync(safePath(f.path),f.mode==='100755'?0o755:0o644);
+  git('add','--',f.path);f.after=correction.after;
+ }
  const tree=git('write-tree');
  const env={...process.env,GIT_AUTHOR_NAME:'Forge integration qualification',GIT_AUTHOR_EMAIL:'forge-qualification@users.noreply.github.com',GIT_COMMITTER_NAME:'Forge integration qualification',GIT_COMMITTER_EMAIL:'forge-qualification@users.noreply.github.com'};
  const candidate=execFileSync('git',['commit-tree',tree,'-p',main,'-p',source,'-m','Qualification-only reviewed branch consolidation'],{encoding:'utf8',env}).trim();
