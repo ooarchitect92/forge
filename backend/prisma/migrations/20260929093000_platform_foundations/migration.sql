@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS tenant_backfill_conflicts (
 
 -- Deterministic legacy ownership backfill only. Ambiguous rows are recorded, never guessed.
 WITH one_owned_org AS (
-  SELECT "ownerId", min(id) AS id
+  SELECT "ownerId", (array_agg(id ORDER BY id))[1] AS id
     FROM organizations
    GROUP BY "ownerId"
   HAVING count(*) = 1
