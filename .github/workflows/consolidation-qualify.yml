@@ -42,6 +42,8 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with: {node-version: '22.16.0'}
+      - name: Require the reviewed workspace serialization-retry correction
+        run: git merge-base --is-ancestor d5e37a16097d82ed58bc6070e5cdaa022e8b5992 HEAD
       - name: Initialize evidence directory in the allocated runner
         run: echo "CONSOLIDATION_REPORT_DIR=$RUNNER_TEMP/consolidation-evidence" >> "$GITHUB_ENV"
       - name: Stage exact reviewed two-parent tree without changing refs
