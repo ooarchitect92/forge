@@ -61,6 +61,7 @@ import experimentRoutes from "./routes/experiment.routes.js";
 import organizationBillingRoutes from "./modules/billing/http/routes.js";
 import billingWebhookRoutes from "./modules/billing/http/webhook.routes.js";
 import platformControlRoutes from "./platform/control/routes.js";
+import platformAuthRoutes from "./routes/platform-auth.routes.js";
 import organizationFileRoutes from "./modules/files/http/routes.js";
 import connectorCredentialRoutes from "./platform/integrations/connector-credential.routes.js";
 import { rateLimit } from "express-rate-limit";
@@ -140,6 +141,10 @@ app.use("/api/v1/auth", meRoutes);
 // Organization-scoped commercial SaaS boundary. Legacy user subscriptions remain
 // available during migration but cannot be used to bypass verified provider state.
 app.use("/api/v1/organizations/:organizationId/billing", organizationBillingRoutes);
+
+// Platform-control session upgrade uses a distinct cookie/audience and requires
+// recent phishing-resistant OIDC from an already authenticated privileged user.
+app.use("/api/v1/platform-auth", platformAuthRoutes);
 
 // Separate privileged control-plane namespace. The router additionally requires a
 // PLATFORM audience session and privileged role.

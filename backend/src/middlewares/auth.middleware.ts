@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { AUTH_COOKIE_NAME } from "../config/auth.js";
 import { authenticateSession } from "../services/session-authentication.js";
+import { authenticatePlatformSession, PLATFORM_COOKIE_NAME } from "../services/platform-session-authentication.js";
 import { requireRecentMfa } from "../modules/identity/domain/assurance.js";
 import { AppError } from "../utils/app-error.js";
 
@@ -45,4 +46,17 @@ export function requireRole(allowedRoles: string | string[]) {
     }
     next();
   };
+}
+
+
+export async function requirePlatformAuth(req: Request, res: Response, next: NextFunction) {
+  try {
+    const token = req.cookies?.[PLATFORM_COOKIE_NAME];
+    const session = await authenticatePlatformSession(token);
+    if (!session) return res.status(401).json({ success: false, error: { code: "PLATFORM_AUTH_REQUIRED", message: "Platform authentication is required." } });
+    res.locals.user = session.user;
+    res.locals.session = session;
+    (req as Request & { user?: typeof session.user }).user = session.user;
+    next();
+  } catch (error) { next(error); }
 }

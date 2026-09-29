@@ -1,25 +1,21 @@
 import { Router } from "express";
-import { requireAuth, requireRole } from "../../middlewares/auth.middleware.js";
+import { requirePlatformAuth } from "../../middlewares/auth.middleware.js";
 import { capabilityRegistry, validateCapabilityRegistry } from "./capability-registry.js";
 import { pgPool } from "../../config/prisma.js";
 import { AppError } from "../../utils/app-error.js";
+import { requireRecentPlatformReauth } from "../../services/platform-session-authentication.js";
+import { applyRuntimeChange, approveRuntimeChange, createRuntimeChange, listChanges } from "./change.service.js";
 
 const router = Router();
-router.use(requireAuth);
-router.use((req, res, next) => {
-  try {
-    const session = res.locals.session;
-    if (!session || session.audience !== "PLATFORM") {
-      throw new AppError("A platform-control session is required", 403, "PLATFORM_SESSION_REQUIRED");
-    }
-    next();
-  } catch (error) { next(error); }
-});
-router.use(requireRole(["PLATFORM_ADMIN","SUPER_ADMIN"]));
+router.use(requirePlatformAuth);
+
+function requirePlatformRole(res:any){
+  if(!["PLATFORM_ADMIN","SUPER_ADMIN"].includes(res.locals.user?.role)) throw new AppError("Platform administration permission is required",403,"FORBIDDEN");
+}
 
 router.get("/capabilities", async (_req, res, next) => {
   try {
-    validateCapabilityRegistry();
+    requirePlatformRole(res); validateCapabilityRegistry();
     const persisted = await pgPool.query(
       `SELECT id,provider,"desiredState","observedState",version,"updatedAt" FROM platform_capabilities ORDER BY id`,
     ).catch(() => ({ rows: [] as any[] }));
@@ -39,7 +35,7 @@ router.get("/capabilities", async (_req, res, next) => {
 
 router.get("/overview", async (_req, res, next) => {
   try {
-    validateCapabilityRegistry();
+    requirePlatformRole(res); validateCapabilityRegistry();
     const [changes, jobs, conflicts] = await Promise.all([
       pgPool.query(`SELECT count(*)::int AS count FROM platform_change_requests WHERE status NOT IN ('COMPLETED','ROLLED_BACK','REJECTED')`).catch(() => ({ rows: [{count:0}] })),
       pgPool.query(`SELECT status,count(*)::int AS count FROM platform_jobs GROUP BY status`).catch(() => ({ rows: [] })),
@@ -55,6 +51,31 @@ router.get("/overview", async (_req, res, next) => {
       note: "Capacity targets are architecture contracts until deployment qualification evidence exists.",
     });
   } catch (error) { next(error); }
+});
+
+router.get("/changes",async(_req,res,next)=>{
+  try{requirePlatformRole(res);res.json({success:true,changes:await listChanges()});}catch(error){next(error);}
+});
+router.post("/changes",async(req,res,next)=>{
+  try{
+    requirePlatformRole(res); requireRecentPlatformReauth(res.locals.session);
+    const change=await createRuntimeChange({actorId:res.locals.user.id,capabilityId:String(req.body?.capabilityId||""),desiredState:String(req.body?.desiredState||""),reason:String(req.body?.reason||"")});
+    res.status(201).json({success:true,change});
+  }catch(error){next(error);}
+});
+router.post("/changes/:id/approve",async(req,res,next)=>{
+  try{
+    requirePlatformRole(res); requireRecentPlatformReauth(res.locals.session);
+    const change=await approveRuntimeChange({actorId:res.locals.user.id,changeId:String(req.params.id),planDigest:String(req.body?.planDigest||"")});
+    res.json({success:true,change});
+  }catch(error){next(error);}
+});
+router.post("/changes/:id/apply",async(req,res,next)=>{
+  try{
+    requirePlatformRole(res); requireRecentPlatformReauth(res.locals.session);
+    const change=await applyRuntimeChange({actorId:res.locals.user.id,changeId:String(req.params.id),expectedDigest:String(req.body?.planDigest||"")});
+    res.json({success:true,change});
+  }catch(error){next(error);}
 });
 
 export default router;

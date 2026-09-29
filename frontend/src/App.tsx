@@ -25,6 +25,7 @@ const CustomEntriesList = lazy(() => import("./pages/dashboard/CustomEntriesList
 const CustomEntryEditor = lazy(() => import("./pages/dashboard/CustomEntryEditor"));
 const SharedTemplatePreviewPage = lazy(() => import("./pages/templates/SharedTemplatePreviewPage"));
 const PublishedSite = lazy(() => import("./pages/published/PublishedSite"));
+const PlatformControlPage = lazy(() => import("./features/platform-control/PlatformControlPage"));
 
 interface RoleRouteProps {
   allowedRoles: UserRole[];
@@ -61,6 +62,9 @@ function RoleRoute({
   // Role not allowed
   if (!allowedRoles.includes(user.role)) {
     switch (user.role) {
+      case "PLATFORM_ADMIN":
+        return <Navigate to="/platform-control" replace />;
+
       case "SUPER_ADMIN":
         return <Navigate to="/super-admin" replace />;
 
@@ -91,6 +95,9 @@ function LoginRoute() {
 
   if (user) {
     switch (user.role) {
+      case "PLATFORM_ADMIN":
+        return <Navigate to="/platform-control" replace />;
+
       case "SUPER_ADMIN":
         return (
           <Navigate
@@ -184,6 +191,9 @@ function HomeRedirect() {
   }
 
   switch (user.role) {
+    case "PLATFORM_ADMIN":
+      return <Navigate to="/platform-control" replace />;
+
     case "SUPER_ADMIN":
       return <Navigate to="/super-admin" replace />;
 
@@ -354,6 +364,17 @@ function App() {
             element={
               <RoleRoute allowedRoles={["SUPER_ADMIN"]}>
                 <SuperAdminDashboard />
+              </RoleRoute>
+            }
+          />
+
+          {/* ================= PLATFORM CONTROL ================= */}
+
+          <Route
+            path="/platform-control"
+            element={
+              <RoleRoute allowedRoles={["PLATFORM_ADMIN", "SUPER_ADMIN"]}>
+                <PlatformControlPage />
               </RoleRoute>
             }
           />
