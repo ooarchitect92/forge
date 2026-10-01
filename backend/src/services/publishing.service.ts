@@ -404,6 +404,23 @@ export async function publishWebsite(
       pageSettings: candidateData.pageSettings || null,
     };
 
+    // Canonical CMS templates may expand into per-item published pages. Keep that
+    // expansion inside the immutable published snapshot instead of overwriting the
+    // editable template pages in Website.editorData.
+    const publishedEditorData = () => canonicalCandidate
+      ? {
+          ...rawEditorData,
+          publishedData: candidateSnapshot,
+          publishing: publishingMeta,
+          deployment: candidateSnapshot.deployment,
+        }
+      : {
+          ...candidateData,
+          ...candidateSnapshot,
+          publishedData: candidateSnapshot,
+          publishing: publishingMeta,
+        };
+
     // 6. State Machine: PROCESSING (Sanitize payload, ensure candidate snapshot is durable)
     await updateDeploymentStatus(deployment.id, "PROCESSING");
     delete (candidateSnapshot as any).publishedData;
@@ -416,12 +433,7 @@ export async function publishWebsite(
 
     if (destinationType === "INTERNAL") {
       // Store published snapshot into authoritative publishedData field
-      const updatedEditorData = {
-        ...candidateData,
-        ...candidateSnapshot,
-        publishedData: candidateSnapshot,
-        publishing: publishingMeta,
-      };
+      const updatedEditorData = publishedEditorData();
 
       if (db?.website?.update) {
         await db.website.update({
@@ -452,12 +464,7 @@ export async function publishWebsite(
       };
 
       // Also persist published snapshot in ForgeStudio for offline / parity reference
-      const updatedEditorData = {
-        ...candidateData,
-        ...candidateSnapshot,
-        publishedData: candidateSnapshot,
-        publishing: publishingMeta,
-      };
+      const updatedEditorData = publishedEditorData();
 
       if (db?.website?.update) {
         await db.website.update({
@@ -482,12 +489,7 @@ export async function publishWebsite(
       filesTransferred = sftpResult.filesTransferred;
       destinationMetadata = sftpResult.metadata || {};
 
-      const updatedEditorData = {
-        ...candidateData,
-        ...candidateSnapshot,
-        publishedData: candidateSnapshot,
-        publishing: publishingMeta,
-      };
+      const updatedEditorData = publishedEditorData();
 
       if (db?.website?.update) {
         await db.website.update({
@@ -512,12 +514,7 @@ export async function publishWebsite(
       filesTransferred = staticResult.filesTransferred;
       destinationMetadata = staticResult.metadata || {};
 
-      const updatedEditorData = {
-        ...candidateData,
-        ...candidateSnapshot,
-        publishedData: candidateSnapshot,
-        publishing: publishingMeta,
-      };
+      const updatedEditorData = publishedEditorData();
 
       if (db?.website?.update) {
         await db.website.update({
