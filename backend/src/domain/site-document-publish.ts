@@ -2,7 +2,7 @@ import { cmsTemplatePages, renderCmsPath, resolveCmsBindings } from "./site-docu
 import { siteDocumentToLegacy, siteElementToLegacy } from "./site-document-legacy.js";
 import { validateSiteDocument, type SiteDocument } from "./site-document.js";
 
-export function siteDocumentToPublishableLegacy(documentInput:SiteDocument){
+export function siteDocumentToPublishableLegacy(documentInput:SiteDocument): Record<string, any> {
   const document=validateSiteDocument(documentInput);
   const legacy=siteDocumentToLegacy(document);
   const templates=cmsTemplatePages(document);
@@ -26,7 +26,7 @@ export function siteDocumentToPublishableLegacy(documentInput:SiteDocument){
       });
     }
   }
-  const result={...legacy,pages:[...staticPages,...generated],canonicalCms:{collections:document.cms.collections,items:document.cms.items,bindings:document.cms.bindings}};
+  const result: Record<string, any> = {...legacy,pages:[...staticPages,...generated],canonicalCms:{collections:document.cms.collections,items:document.cms.items,bindings:document.cms.bindings}};
   const currentHome=result.pages.find((page:any)=>page.id===result.homePageId);
   if(currentHome) result.elements=currentHome.elements;
   return result;
