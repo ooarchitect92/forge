@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS site_document_commands (
 CREATE INDEX IF NOT EXISTS site_document_commands_org_site_created_idx ON site_document_commands ("organizationId","websiteId","createdAt");
 
 CREATE TABLE IF NOT EXISTS cms_collections_v2 (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  id varchar(200) PRIMARY KEY,
   "websiteId" uuid NOT NULL REFERENCES websites(id) ON DELETE CASCADE,
   "organizationId" uuid NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
   "workspaceId" uuid NULL REFERENCES workspaces(id) ON DELETE SET NULL,
@@ -59,8 +59,8 @@ CREATE TABLE IF NOT EXISTS cms_collections_v2 (
 CREATE INDEX IF NOT EXISTS cms_collections_v2_org_site_idx ON cms_collections_v2 ("organizationId","websiteId");
 
 CREATE TABLE IF NOT EXISTS cms_fields_v2 (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "collectionId" uuid NOT NULL REFERENCES cms_collections_v2(id) ON DELETE CASCADE,
+  id varchar(200) PRIMARY KEY,
+  "collectionId" varchar(200) NOT NULL REFERENCES cms_collections_v2(id) ON DELETE CASCADE,
   "organizationId" uuid NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
   "websiteId" uuid NOT NULL REFERENCES websites(id) ON DELETE CASCADE,
   key varchar(255) NOT NULL,
@@ -76,8 +76,8 @@ CREATE TABLE IF NOT EXISTS cms_fields_v2 (
 CREATE INDEX IF NOT EXISTS cms_fields_v2_org_site_collection_idx ON cms_fields_v2 ("organizationId","websiteId","collectionId");
 
 CREATE TABLE IF NOT EXISTS cms_items_v2 (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "collectionId" uuid NOT NULL REFERENCES cms_collections_v2(id) ON DELETE CASCADE,
+  id varchar(200) PRIMARY KEY,
+  "collectionId" varchar(200) NOT NULL REFERENCES cms_collections_v2(id) ON DELETE CASCADE,
   "organizationId" uuid NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
   "websiteId" uuid NOT NULL REFERENCES websites(id) ON DELETE CASCADE,
   title varchar(500),
@@ -92,14 +92,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS cms_items_v2_collection_slug_unique ON cms_ite
 CREATE INDEX IF NOT EXISTS cms_items_v2_org_site_collection_status_idx ON cms_items_v2 ("organizationId","websiteId","collectionId",status);
 
 CREATE TABLE IF NOT EXISTS cms_bindings_v2 (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  id varchar(200) PRIMARY KEY,
   "websiteId" uuid NOT NULL REFERENCES websites(id) ON DELETE CASCADE,
   "organizationId" uuid NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
   "workspaceId" uuid NULL REFERENCES workspaces(id) ON DELETE SET NULL,
   "elementId" varchar(200) NOT NULL,
   property varchar(255) NOT NULL,
-  "collectionId" uuid NOT NULL REFERENCES cms_collections_v2(id) ON DELETE CASCADE,
-  "fieldId" uuid NOT NULL REFERENCES cms_fields_v2(id) ON DELETE CASCADE,
+  "collectionId" varchar(200) NOT NULL REFERENCES cms_collections_v2(id) ON DELETE CASCADE,
+  "fieldId" varchar(200) NOT NULL REFERENCES cms_fields_v2(id) ON DELETE CASCADE,
   "createdAt" timestamptz NOT NULL DEFAULT now(),
   "updatedAt" timestamptz NOT NULL DEFAULT now(),
   UNIQUE ("websiteId","elementId",property)
