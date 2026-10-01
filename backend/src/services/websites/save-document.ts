@@ -5,6 +5,7 @@ import { workspaceCommand } from "../workspaces/command.js";
 import { getScopedWebsiteInTransaction } from "./scoped-access.js";
 import { authorizeDocumentEdit, canonicalDocumentJson, documentObject, expectedDocumentVersion } from "./document-policy.js";
 import type { WorkspaceTransaction } from "../workspaces/access.js";
+import { syncSiteDocumentAfterLegacySave } from "./site-document-storage.js";
 
 export interface DocumentWriteContext { key: string; expectedVersion: number; }
 export interface DocumentPatch {
@@ -101,8 +102,12 @@ export async function saveWebsiteDocument(websiteId: string, actorId: string, in
         }) as Prisma.InputJsonValue;
       }
       const saved = await tx.website.update({ where: { id: websiteId, documentVersion: version }, data,
-        select: { id: true, name: true, slug: true, status: true, documentVersion: true, updatedAt: true } });
-      const acknowledgement: DocumentAcknowledgement = { ...saved, updatedAt: saved.updatedAt.toISOString() };
+        select: { id: true, name: true, slug: true, status: true, documentVersion: true, updatedAt: true, organizationId: true, workspaceId: true, editorData: true } });
+      if (patch.editorData !== undefined) await syncSiteDocumentAfterLegacySave(tx, saved, actorId);
+      const acknowledgement: DocumentAcknowledgement = {
+        id: saved.id, name: saved.name, slug: saved.slug, status: saved.status,
+        documentVersion: saved.documentVersion, updatedAt: saved.updatedAt.toISOString(),
+      };
       if (source) {
         // Revision allocation uses the same serializable transaction as the write.
         const latest = await tx.websiteRevision.findFirst({ where: { websiteId }, orderBy: { version: "desc" }, select: { version: true } });
