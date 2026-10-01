@@ -40,9 +40,12 @@ jobs:
       - name: AI and worker contracts (fixtures, no live provider requests)
         working-directory: backend
         run: node --test dist/tests/ai-changeset-integration.test.js dist/tests/job-leases-integration.test.js dist/tests/ai-prompt-cleanup.test.js dist/tests/ai-site-brief.test.js dist/tests/ai-site-blueprint.test.js dist/tests/ai-site-repair.test.js
+      - name: Design-platform pure contracts
+        working-directory: backend
+        run: node --test dist/tests/design-platform-figma.test.js dist/tests/design-platform-cms.test.js
       - name: Changed AI UI lint
         working-directory: frontend
-        run: npx --no-install eslint src/features/ai/AiSiteAssistant.tsx src/features/ai/DesignAssistant.tsx src/features/ai/DesignProposalPreview.tsx src/features/editor-access/document-save-coordinator.ts
+        run: npx --no-install eslint src/features/ai/AiSiteAssistant.tsx src/features/ai/DesignAssistant.tsx src/features/ai/DesignProposalPreview.tsx src/features/ai/DesignPlatformWorkspace.tsx src/features/editor-access/document-save-coordinator.ts
       - name: Design importer, provider boundaries and durable execution
         working-directory: backend
         run: node --test dist/tests/ai-design.test.js dist/tests/ai-design-integration.test.js

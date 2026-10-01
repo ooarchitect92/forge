@@ -1,11 +1,12 @@
 import { useRef, useState } from "react";
 import { DesignAssistant } from "./DesignAssistant";
+import { DesignPlatformWorkspace } from "./DesignPlatformWorkspace";
 
 type Changeset = {
   id: string;
   status: string;
   expectedDocumentVersion: number;
-  summary: { pageNames?: unknown; sectionCount?: unknown };
+  summary: { pageNames?: unknown; sectionCount?: unknown; setupRequired?: unknown; provider?: unknown };
 };
 
 const SAMPLE_BRIEF = `Create a distinctive, premium website for an accounting training centre called Northstar Academy. We help students and working professionals prepare for CMA, CPA, and ACCA. The audience wants a clear path from choosing a qualification to enrolling.
@@ -17,8 +18,8 @@ Visual direction: editorial, confident, and modern; warm ivory, deep forest/navy
 const MAX_BRIEF_LENGTH = 64_000;
 
 async function generationError(response: Response): Promise<string> {
-  const body = await response.json().catch(() => null) as { code?: unknown } | null;
-  const code = typeof body?.code === "string" ? body.code : "";
+  const body = await response.json().catch(() => null) as { code?: unknown; error?: { code?: unknown; message?: unknown } } | null;
+  const code = typeof body?.code === "string" ? body.code : typeof body?.error?.code === "string" ? body.error.code : "";
   if (code === "AI_PROMPT_INVALID" || response.status === 422) return "Brief must be between 12 and 64,000 characters. Shorten it and try again.";
   if (code === "DOCUMENT_VERSION_CONFLICT" || response.status === 412) return "This website changed. Reload and generate a new draft.";
   if (code === "AI_INVALID_OUTPUT" || response.status === 502) return "The AI returned a draft that could not be validated. Please retry or simplify the brief.";
@@ -27,7 +28,7 @@ async function generationError(response: Response): Promise<string> {
   if (response.status === 429) return "Too many requests. Please wait before generating another draft.";
   if (response.status === 401) return "Your session expired. Sign in again and retry.";
   if (response.status === 403) return "You do not have permission to generate a draft for this website.";
-  return "Generation could not complete. Please retry; if it continues, contact an administrator.";
+  return typeof body?.error?.message === "string" ? body.error.message : "Generation could not complete. Please retry; if it continues, contact an administrator.";
 }
 
 export function AiSiteAssistant({ apiUrl, websiteId, onClose, onApplied }: {
@@ -35,6 +36,7 @@ export function AiSiteAssistant({ apiUrl, websiteId, onClose, onApplied }: {
 }) {
   const [prompt, setPrompt] = useState("");
   const [designMode, setDesignMode] = useState(false);
+  const [platformMode, setPlatformMode] = useState(false);
   const [changeset, setChangeset] = useState<Changeset | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -47,6 +49,13 @@ export function AiSiteAssistant({ apiUrl, websiteId, onClose, onApplied }: {
     if (!response.ok) throw new Error("Unable to load the current website");
     const body = await response.json();
     return Number(body.website.documentVersion);
+  }
+  async function loadChangeset(id: string) {
+    const response = await fetch(`${apiUrl}/api/v1/ai/changesets/${id}`, { credentials: "include" });
+    if (!response.ok) throw new Error("The generated proposal could not be loaded.");
+    const body = await response.json();
+    setChangeset(body.changeset);
+    setPlatformMode(false);
   }
   async function generate() {
     if (prompt.trim().length < 12 || prompt.length > MAX_BRIEF_LENGTH) {
@@ -94,22 +103,31 @@ export function AiSiteAssistant({ apiUrl, websiteId, onClose, onApplied }: {
   }
   const pageNames = changeset && Array.isArray(changeset.summary?.pageNames)
     ? changeset.summary.pageNames.filter((value): value is string => typeof value === "string") : [];
+  const setupRequired = changeset && Array.isArray(changeset.summary?.setupRequired)
+    ? changeset.summary.setupRequired.filter((value): value is string => typeof value === "string") : [];
   if (designMode) return <DesignAssistant apiUrl={apiUrl} websiteId={websiteId} onClose={() => { onApplied(); onClose(); }} />;
+  if (platformMode) return <div className="fixed inset-0 z-[100] overflow-auto bg-slate-950/70 p-4" role="dialog" aria-modal="true" aria-label="Forge design platform">
+    <div className="mx-auto max-w-6xl rounded-xl bg-white p-6 text-slate-900 shadow-xl">
+      <div className="flex items-start justify-between gap-4"><div><h2 className="text-xl font-bold">Forge Design Platform</h2><p className="mt-1 text-sm text-slate-600">Industry templates, Figma-to-native proposals, CMS blueprints and governed starter usage.</p></div><button disabled={busy} onClick={() => setPlatformMode(false)}>Back to AI draft</button></div>
+      <DesignPlatformWorkspace apiUrl={apiUrl} websiteId={websiteId} prepareVersion={version} onChangesetCreated={loadChangeset} onUseBrief={setPrompt} />
+    </div>
+  </div>;
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
     <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
       <h2 className="text-lg font-bold">AI website draft</h2>
-      <button disabled={busy} onClick={() => setDesignMode(true)} className="my-3 rounded bg-indigo-700 px-4 py-2 text-white">Open Stitch + Claude designer</button>
+      <div className="my-3 flex flex-wrap gap-2"><button disabled={busy} onClick={() => setDesignMode(true)} className="rounded bg-indigo-700 px-4 py-2 text-white">Open Stitch + Claude designer</button><button disabled={busy} onClick={() => setPlatformMode(true)} className="rounded bg-slate-900 px-4 py-2 text-white">Templates, Figma & CMS</button></div>
       <p className="mt-1 text-sm text-slate-500">Generation creates a reviewable draft; it never overwrites your site without approval.</p>
       {!changeset && <>
         <div className="mt-4 flex items-center justify-between gap-3"><label htmlFor="ai-site-brief" className="text-sm font-semibold text-slate-700">Website brief</label><button type="button" disabled={busy} onClick={() => setPrompt(SAMPLE_BRIEF)} className="text-sm font-semibold text-blue-700 hover:underline">Use sample brief</button></div>
         <textarea id="ai-site-brief" value={prompt} onChange={event => setPrompt(event.target.value)} className="mt-2 min-h-48 w-full rounded-lg border p-3 text-sm text-slate-900" placeholder="Describe your audience, pages, offerings, visual direction, and calls to action" />
-        <p className={`mt-1 text-xs ${prompt.length > MAX_BRIEF_LENGTH ? "text-red-600" : "text-slate-500"}`}>{prompt.length.toLocaleString()} / {MAX_BRIEF_LENGTH.toLocaleString()} characters. Edit the sample to match your business. CMS collections, forms, and images need separate setup.</p>
+        <p className={`mt-1 text-xs ${prompt.length > MAX_BRIEF_LENGTH ? "text-red-600" : "text-slate-500"}`}>{prompt.length.toLocaleString()} / {MAX_BRIEF_LENGTH.toLocaleString()} characters. Use the Design Platform for governed Figma imports and merge-only CMS setup.</p>
         <button disabled={busy || prompt.trim().length < 12 || prompt.length > MAX_BRIEF_LENGTH} onClick={generate} className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy ? "Generating draft..." : "Generate draft"}</button>
       </>}
       {changeset && <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm">
         <p className="font-semibold">Draft ready for review</p>
-        <p className="mt-1 text-slate-600">{pageNames.length} editable pages, {String(changeset.summary.sectionCount ?? 0)} sections. This does not create a CMS collection.</p>
+        <p className="mt-1 text-slate-600">{pageNames.length} editable pages{changeset.summary.sectionCount !== undefined ? `, ${String(changeset.summary.sectionCount)} sections` : ""}. Provider: {String(changeset.summary.provider ?? "Forge AI")}.</p>
         {pageNames.length > 0 && <ul className="mt-2 list-inside list-disc text-slate-700">{pageNames.map((name, index) => <li key={`${index}-${name}`}>{name}</li>)}</ul>}
+        {!!setupRequired.length && <div className="mt-3 rounded border border-amber-300 bg-amber-50 p-2 text-amber-900"><p className="font-semibold">Review before publishing</p><ul className="list-inside list-disc">{setupRequired.map((item) => <li key={item}>{item}</li>)}</ul></div>}
         <p className="mt-2 text-slate-600">Applying replaces the current editable document only if it has not changed since generation.</p>
         <div className="mt-4 flex gap-2"><button disabled={busy} onClick={apply} className="rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white">Apply draft</button><button disabled={busy} onClick={cancel} className="rounded-lg border px-4 py-2 font-semibold">Discard</button></div>
       </div>}
