@@ -13,6 +13,10 @@ import { ConversionError } from "./converter.js";
 import { IsolatedDesignConverter } from "./isolated-converter.js";
 import { applyScopedEdits } from "./edit-operations.js";
 import { createHash } from "node:crypto";
+import { diffVisualSiteDocuments } from "../../../domain/site-document-diff.js";
+import { legacyWebsiteToSiteDocument } from "../../../domain/site-document-legacy.js";
+import { validateSiteDocument } from "../../../domain/site-document.js";
+import { ensureSiteDocumentState } from "../../../services/websites/site-document-storage.js";
 
 type Ports = { planner: DesignPlanner; designer: DesignProvider; artifacts: ArtifactStore; converter: DesignConverter };
 export async function runDesignExecution(executionId: string, job: { id: string; lockToken: string }, supplied?: Ports) {
@@ -107,9 +111,30 @@ export async function runDesignExecution(executionId: string, job: { id: string;
     const checkLinks = (nodes: unknown) => { if (!Array.isArray(nodes)) return; for (const node of nodes as JsonObject[]) { if (typeof node.href === "string" && !routes.has(node.href)) throw new ConversionError(["UNRESOLVED_LINK"]); checkLinks(node.children); } };
     pages.forEach(page => checkLinks(page.elements));
     await transaction(async tx => {
+      const canonical = await ensureSiteDocumentState(tx, website, execution.actorId);
+      const generatedVisual = legacyWebsiteToSiteDocument({
+        websiteId: website.id, name: website.name, slug: website.slug, editorData: document, cmsTypes: [],
+      });
+      const targetCanonical = validateSiteDocument({
+        ...canonical.document,
+        site: {
+          ...canonical.document.site,
+          ...generatedVisual.site,
+          metadata: { ...canonical.document.site.metadata, ...generatedVisual.site.metadata },
+        },
+        pages: generatedVisual.pages,
+        tokens: [
+          ...canonical.document.tokens.filter(token => token.source !== "stitch" && token.source !== "import"),
+          ...generatedVisual.tokens.map(token => ({ ...token, source: "stitch" as const })),
+        ],
+        extensions: { ...canonical.document.extensions, ...generatedVisual.extensions },
+      });
+      const proposedCommands = diffVisualSiteDocuments(canonical.document, targetCanonical);
+      if (!proposedCommands.length) throw new AppError("The design proposal does not change the current site", 422, "AI_NO_CHANGES");
       await tx.aiChangeset.create({ data: { executionId, websiteId: execution.websiteId, workspaceId: execution.workspaceId, organizationId: execution.organizationId, actorId: execution.actorId,
         expectedDocumentVersion: execution.expectedDocumentVersion!, proposedDocument: document as Prisma.InputJsonValue,
-        summary: { provider: "stitch-claude", pageNames: pages.map(page => page.name), pageCount: pages.length, setupRequired, conversionVersion: 1, proposalHash: createHash("sha256").update(JSON.stringify(document)).digest("hex") } as Prisma.InputJsonValue,
+        proposedCommands: proposedCommands as unknown as Prisma.InputJsonValue,
+        summary: { provider: "stitch-claude", pageNames: pages.map(page => page.name), pageCount: pages.length, setupRequired, conversionVersion: 2, commandCount: proposedCommands.length, commandHash: createHash("sha256").update(JSON.stringify(proposedCommands)).digest("hex"), proposalHash: createHash("sha256").update(JSON.stringify(document)).digest("hex") } as Prisma.InputJsonValue,
       } });
       await tx.aiExecution.update({ where: { id: executionId }, data: { status: "COMPLETED", stage: "PENDING_REVIEW", completedAt: new Date(), outputSummary: { pageCount: pages.length } } });
       await tx.auditLog.create({ data: { userId: execution.actorId, action: "AI_DESIGN_READY", targetResource: `ai-execution:${executionId}`, details: { pageCount: pages.length } } });
