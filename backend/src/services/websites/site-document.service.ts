@@ -56,7 +56,11 @@ export async function getSiteDocument(websiteId: string, actorId: string) {
     const website = await getScopedWebsiteInTransaction(tx, websiteId, actorId);
     if (!website.organizationId) throw new AppError("Website ownership migration is required before SiteDocument use", 503, "TENANT_MIGRATION_REQUIRED");
     await setSiteDocumentTenant(tx, website.organizationId);
-    const state = await tx.siteDocumentState.findUnique({ where: { websiteId } });
+    let state = await tx.siteDocumentState.findUnique({ where: { websiteId } });
+    if (state && state.revision !== website.documentVersion) {
+      await syncSiteDocumentAfterLegacySave(tx, website, actorId);
+      state = await tx.siteDocumentState.findUnique({ where: { websiteId } });
+    }
     const document = state ? validateSiteDocument(state.document) : await siteDocumentFromLegacy(tx, website);
     return {
       websiteId,
@@ -218,7 +222,11 @@ export async function getCmsV2Snapshot(websiteId: string, actorId: string) {
     const website = await getScopedWebsiteInTransaction(tx, websiteId, actorId);
     if (!website.organizationId) throw new AppError("Website ownership migration is required", 503, "TENANT_MIGRATION_REQUIRED");
     await setSiteDocumentTenant(tx, website.organizationId);
-    const state = await tx.siteDocumentState.findUnique({ where: { websiteId } });
+    let state = await tx.siteDocumentState.findUnique({ where: { websiteId } });
+    if (state && state.revision !== website.documentVersion) {
+      await syncSiteDocumentAfterLegacySave(tx, website, actorId);
+      state = await tx.siteDocumentState.findUnique({ where: { websiteId } });
+    }
     const document = state ? validateSiteDocument(state.document) : await siteDocumentFromLegacy(tx, website);
     return { collections: document.cms.collections, items: document.cms.items, bindings: document.cms.bindings, revision: state?.revision ?? website.documentVersion };
   });
