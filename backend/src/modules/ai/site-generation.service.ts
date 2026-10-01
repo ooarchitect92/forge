@@ -39,7 +39,7 @@ export async function generateSiteDraft(input: { websiteId: string; actorId: str
     const generatedVisual = legacyWebsiteToSiteDocument({ websiteId: website.id, name: website.name, slug: website.slug, editorData, cmsTypes: [] });
     const targetCanonical = validateSiteDocument({
       ...canonical.document,
-      site: { ...canonical.document.site, ...generatedVisual.site, metadata: { ...canonical.document.site.metadata, ...generatedVisual.site.metadata } },
+      site: { ...canonical.document.site, title: generatedVisual.site.title || canonical.document.site.title, slug: canonical.document.site.slug, defaultLocale: canonical.document.site.defaultLocale, metadata: canonical.document.site.metadata },
       pages: generatedVisual.pages,
       tokens: [
         ...canonical.document.tokens.filter(token => token.source !== "import"),
