@@ -125,8 +125,10 @@ export async function runDesignExecution(executionId: string, job: { id: string;
         ...canonical.document,
         site: {
           ...canonical.document.site,
-          ...generatedVisual.site,
-          metadata: { ...canonical.document.site.metadata, ...generatedVisual.site.metadata },
+          title: generatedVisual.site.title || canonical.document.site.title,
+          slug: canonical.document.site.slug,
+          defaultLocale: canonical.document.site.defaultLocale,
+          metadata: canonical.document.site.metadata,
         },
         pages: generatedVisual.pages,
         tokens: [
