@@ -8,6 +8,8 @@ import { publishToWordPress } from "./wordpress/connector.service.js";
 import { destinationRegistry } from "./destinations/registry.js";
 import { enqueueJob, cancelJob, getJobById } from "./jobs/jobRunner.js";
 import { recordAuditLog } from "./audit.service.js";
+import { siteDocumentToPublishableLegacy } from "../domain/site-document-publish.js";
+import { validateSiteDocument } from "../domain/site-document.js";
 
 const db = prisma as any;
 
@@ -286,7 +288,18 @@ export async function publishWebsite(
     ? JSON.parse(website.editorData)
     : (website.editorData || {});
 
-  const candidateData = options.editorData || rawEditorData;
+  let canonicalCandidate: any = null;
+  if (!options.editorData && website.organizationId) {
+    canonicalCandidate = await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT set_config('app.tenant_id', ${website.organizationId}, true)`;
+      const state = await tx.siteDocumentState.findUnique({ where: { websiteId } });
+      // Publish only from canonical state when it represents the exact current document version.
+      // A stale/missing canonical projection falls back to the proven legacy pipeline.
+      if (!state || state.revision !== website.documentVersion) return null;
+      return siteDocumentToPublishableLegacy(validateSiteDocument(state.document));
+    });
+  }
+  const candidateData = options.editorData || canonicalCandidate || rawEditorData;
 
   // 3. Pre-Publish Validation
   const validation = await validateWebsiteForPublish(websiteId, userId, candidateData);
