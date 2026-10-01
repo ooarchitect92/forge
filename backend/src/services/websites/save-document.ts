@@ -108,6 +108,15 @@ export async function saveWebsiteDocument(websiteId: string, actorId: string, in
         if (accesses.length > 1000) throw new AppError("Component policy exceeds the supported budget", 503, "POLICY_BUDGET_EXCEEDED");
         const editableProtectedIds = new Set(accesses.filter(access => can("EDIT", access.componentId)).map(access => access.componentId));
         const proposedEditorData = typedProposal ? documentObject(legacyMirror(typedProposal.document)) : patch.editorData as ReturnType<typeof documentObject>;
+        if (typedProposal) {
+          // Typed visual proposals never own publish/deployment authority. Omit those
+          // fields so authorizeDocumentEdit preserves the exact server-owned values
+          // from the current legacy document, including the distinction between
+          // "absent" and an empty object on older sites.
+          for (const key of ["publishedData", "publishing", "releases", "currentReleaseId", "deploymentHistory", "deployment", "backups", "backupPolicy", "hostingConfig", "customDomains", "scheduledPublish"]) {
+            delete proposedEditorData[key];
+          }
+        }
         data.editorData = authorizeDocumentEdit(current, proposedEditorData, {
           canDesign: can("EDIT_DESIGN"), canContent: can("EDIT_CONTENT"), canManage: can("MANAGE_PERMISSIONS"), canSeo: can("EDIT_SEO"), editableProtectedIds,
         }) as Prisma.InputJsonValue;
