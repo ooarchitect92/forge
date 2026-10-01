@@ -849,6 +849,7 @@ model AiChangeset {
   status String @default("PENDING_REVIEW") @db.VarChar(30)
   expectedDocumentVersion Int
   proposedDocument Json
+  proposedCommands Json?
   summary Json @default("{}")
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   approvedAt DateTime? @db.Timestamptz(6)
