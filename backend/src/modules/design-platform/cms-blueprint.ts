@@ -15,19 +15,82 @@ export type CmsBlueprintPlanAction = {
 type ExistingCollection = {
   id: string;
   name: string;
-  singular: string;
-  plural: string;
   description: string | null;
-  isPublic: boolean;
-  hasArchive: boolean;
   slug: string;
-  fields: Array<{ id: string; name: string; key: string; type: string; required: boolean; order: number }>;
-  entries: Array<{ id: string; slug: string }>;
+  supports: unknown;
+  fields: Array<{ id: string; name: string; slug: string; type: string; order: number; config: unknown }>;
+  entries: Array<{ id: string; slug: string | null }>;
 };
 
+type CollectionMetadata = {
+  singular: string;
+  plural: string;
+  isPublic: boolean;
+  hasArchive: boolean;
+};
+
+type FieldMetadata = {
+  required: boolean;
+  options: Record<string, unknown>;
+};
+
+const DEFAULT_SUPPORTS = ["title", "editor", "thumbnail"];
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.length > 0).slice(0, 20)
+    : [];
+}
+
+function collectionMetadata(value: unknown, fallbackName: string): CollectionMetadata {
+  const root = record(value);
+  const metadata = record(root.forgeCms);
+  return {
+    singular: typeof metadata.singular === "string" && metadata.singular.trim() ? metadata.singular : fallbackName,
+    plural: typeof metadata.plural === "string" && metadata.plural.trim() ? metadata.plural : fallbackName,
+    isPublic: typeof metadata.isPublic === "boolean" ? metadata.isPublic : true,
+    hasArchive: typeof metadata.hasArchive === "boolean" ? metadata.hasArchive : true,
+  };
+}
+
+function collectionSupports(
+  existing: unknown,
+  desired: CmsBlueprint["collections"][number],
+): Prisma.InputJsonValue {
+  const root = record(existing);
+  const capabilities = stringArray(Array.isArray(existing) ? existing : root.capabilities);
+  return {
+    capabilities: capabilities.length ? capabilities : DEFAULT_SUPPORTS,
+    forgeCms: {
+      version: 1,
+      singular: desired.singular,
+      plural: desired.plural,
+      isPublic: desired.isPublic,
+      hasArchive: desired.hasArchive,
+    },
+  };
+}
+
+function fieldMetadata(value: unknown): FieldMetadata {
+  const root = record(value);
+  return {
+    required: root.required === true,
+    options: record(root.options),
+  };
+}
+
+function fieldConfig(field: CmsBlueprint["collections"][number]["fields"][number]): Prisma.InputJsonValue {
+  return { required: field.required, options: field.options };
+}
+
 function collectionMetadataChanged(existing: ExistingCollection, desired: CmsBlueprint["collections"][number]): boolean {
-  return existing.name !== desired.name || existing.singular !== desired.singular || existing.plural !== desired.plural ||
-    (existing.description ?? "") !== desired.description || existing.isPublic !== desired.isPublic || existing.hasArchive !== desired.hasArchive;
+  const metadata = collectionMetadata(existing.supports, existing.name);
+  return existing.name !== desired.name || metadata.singular !== desired.singular || metadata.plural !== desired.plural ||
+    (existing.description ?? "") !== desired.description || metadata.isPublic !== desired.isPublic || metadata.hasArchive !== desired.hasArchive;
 }
 
 function buildPreview(blueprint: CmsBlueprint, existing: ExistingCollection[]) {
@@ -42,9 +105,10 @@ function buildPreview(blueprint: CmsBlueprint, existing: ExistingCollection[]) {
       kind: !current ? "CREATE_COLLECTION" : collectionMetadataChanged(current, collection) ? "UPDATE_COLLECTION" : "KEEP_COLLECTION",
       target: collection.slug,
     });
-    const fields = new Map((current?.fields ?? []).map((field) => [field.key, field]));
+    const fields = new Map((current?.fields ?? []).map((field) => [field.slug, field]));
     for (const [order, field] of collection.fields.entries()) {
       const present = fields.get(field.key);
+      const metadata = present ? fieldMetadata(present.config) : null;
       let kind: CmsBlueprintPlanAction["kind"];
       let detail: string | undefined;
       if (!present) kind = "CREATE_FIELD";
@@ -52,11 +116,12 @@ function buildPreview(blueprint: CmsBlueprint, existing: ExistingCollection[]) {
         kind = "CONFLICT_FIELD_TYPE";
         detail = `Existing type ${present.type}; requested type ${field.type}`;
         conflicts += 1;
-      } else if (present.name !== field.name || present.required !== field.required || present.order !== order) kind = "UPDATE_FIELD";
+      } else if (present.name !== field.name || metadata?.required !== field.required || present.order !== order ||
+        JSON.stringify(metadata?.options ?? {}) !== JSON.stringify(field.options)) kind = "UPDATE_FIELD";
       else kind = "KEEP_FIELD";
       actions.push({ collection: collection.slug, kind, target: field.key, ...(detail ? { detail } : {}) });
     }
-    const items = new Set((current?.entries ?? []).map((entry) => entry.slug));
+    const items = new Set((current?.entries ?? []).flatMap((entry) => typeof entry.slug === "string" ? [entry.slug] : []));
     for (const item of collection.items) {
       actions.push({ collection: collection.slug, kind: items.has(item.slug) ? "UPDATE_ITEM" : "CREATE_ITEM", target: item.slug });
     }
@@ -113,34 +178,29 @@ export async function applyCmsBlueprint(
           where: { websiteId_slug: { websiteId, slug: desired.slug } },
           include: { fields: true, entries: { select: { id: true, slug: true } } },
         });
+        const supports = collectionSupports(existing?.supports, desired);
         const collection = existing
           ? await tx.customPostType.update({
               where: { id: existing.id },
               data: {
                 name: desired.name,
-                singular: desired.singular,
-                plural: desired.plural,
                 description: desired.description || null,
-                isPublic: desired.isPublic,
-                hasArchive: desired.hasArchive,
+                supports,
               },
             })
           : await tx.customPostType.create({
               data: {
                 websiteId,
                 name: desired.name,
-                singular: desired.singular,
-                plural: desired.plural,
                 slug: desired.slug,
                 description: desired.description || null,
-                isPublic: desired.isPublic,
-                hasArchive: desired.hasArchive,
+                supports,
               },
             });
         if (existing) counts.collectionsUpdated += 1; else counts.collectionsCreated += 1;
         collectionIds[desired.slug] = collection.id;
-        const fields = new Map((existing?.fields ?? []).map((field) => [field.key, field]));
-        const entries = new Map((existing?.entries ?? []).map((entry) => [entry.slug, entry]));
+        const fields = new Map((existing?.fields ?? []).map((field) => [field.slug, field]));
+        const entries = new Map((existing?.entries ?? []).flatMap((entry) => typeof entry.slug === "string" ? [[entry.slug, entry] as const] : []));
 
         for (const [order, field] of desired.fields.entries()) {
           const present = fields.get(field.key);
@@ -150,15 +210,14 @@ export async function applyCmsBlueprint(
           const data = {
             name: field.name,
             type: field.type,
-            required: field.required,
             order,
-            options: field.options as Prisma.InputJsonValue,
+            config: fieldConfig(field),
           };
           if (present) {
             await tx.customField.update({ where: { id: present.id }, data });
             counts.fieldsUpdated += 1;
           } else {
-            await tx.customField.create({ data: { postTypeId: collection.id, key: field.key, ...data } });
+            await tx.customField.create({ data: { postTypeId: collection.id, slug: field.key, ...data } });
             counts.fieldsCreated += 1;
           }
         }
@@ -168,7 +227,7 @@ export async function applyCmsBlueprint(
           if (present) {
             await tx.customEntry.update({
               where: { id: present.id },
-              data: { title: item.title, status: item.status, values: item.values as Prisma.InputJsonValue },
+              data: { title: item.title, status: item.status, data: item.values as Prisma.InputJsonValue },
             });
             counts.itemsUpdated += 1;
           } else {
@@ -179,7 +238,7 @@ export async function applyCmsBlueprint(
                 title: item.title,
                 slug: item.slug,
                 status: item.status,
-                values: item.values as Prisma.InputJsonValue,
+                data: item.values as Prisma.InputJsonValue,
               },
             });
             counts.itemsCreated += 1;
