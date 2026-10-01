@@ -1253,7 +1253,7 @@ model SiteDocumentCommand {
 }
 
 model CmsCollectionV2 {
-  id             String   @id @default(uuid()) @db.Uuid
+  id             String   @id @db.VarChar(200)
   websiteId      String   @db.Uuid
   organizationId String   @db.Uuid
   workspaceId    String?  @db.Uuid
@@ -1269,8 +1269,8 @@ model CmsCollectionV2 {
 }
 
 model CmsFieldV2 {
-  id             String   @id @default(uuid()) @db.Uuid
-  collectionId   String   @db.Uuid
+  id             String   @id @db.VarChar(200)
+  collectionId   String   @db.VarChar(200)
   organizationId String   @db.Uuid
   websiteId      String   @db.Uuid
   key            String   @db.VarChar(255)
@@ -1288,8 +1288,8 @@ model CmsFieldV2 {
 }
 
 model CmsItemV2 {
-  id             String   @id @default(uuid()) @db.Uuid
-  collectionId   String   @db.Uuid
+  id             String   @id @db.VarChar(200)
+  collectionId   String   @db.VarChar(200)
   organizationId String   @db.Uuid
   websiteId      String   @db.Uuid
   title          String?  @db.VarChar(500)
@@ -1306,14 +1306,14 @@ model CmsItemV2 {
 }
 
 model CmsBindingV2 {
-  id             String   @id @default(uuid()) @db.Uuid
+  id             String   @id @db.VarChar(200)
   websiteId      String   @db.Uuid
   organizationId String   @db.Uuid
   workspaceId    String?  @db.Uuid
   elementId      String   @db.VarChar(200)
   property       String   @db.VarChar(255)
-  collectionId   String   @db.Uuid
-  fieldId        String   @db.Uuid
+  collectionId   String   @db.VarChar(200)
+  fieldId        String   @db.VarChar(200)
   createdAt      DateTime @default(now()) @db.Timestamptz(6)
   updatedAt      DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
