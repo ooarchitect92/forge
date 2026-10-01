@@ -4,6 +4,7 @@ import {
   applySiteDocumentCommands, getCmsV2Snapshot, getSiteDocument, getSiteDocumentRevision,
   initializeSiteDocument, listSiteDocumentRevisions, previewSiteDocumentCommands, restoreSiteDocumentRevision,
 } from "../services/websites/site-document.service.js";
+import { applyFigmaSync, previewFigmaSync } from "../integrations/figma/figma-sync.service.js";
 
 function key(req: Request): string {
   const value = req.header("Idempotency-Key");
@@ -85,6 +86,27 @@ export async function restoreSiteDocumentRevisionHandler(req: Request, res: Resp
 export async function getCmsV2SnapshotHandler(req: Request, res: Response, next: NextFunction) {
   try {
     const result = await getCmsV2Snapshot(req.params.id as string, res.locals.user.id);
+    res.json({ success: true, ...result });
+  } catch (error) { next(error); }
+}
+
+
+export async function previewFigmaSyncHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const result = await previewFigmaSync({ websiteId: req.params.id as string, actorId: res.locals.user.id, fileKey: req.body?.fileKey });
+    res.json({ success: true, ...result });
+  } catch (error) { next(error); }
+}
+
+export async function applyFigmaSyncHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const result = await applyFigmaSync({
+      websiteId: req.params.id as string,
+      actorId: res.locals.user.id,
+      fileKey: req.body?.fileKey,
+      expectedRevision: int(req.body?.expectedRevision, "expectedRevision"),
+      key: key(req),
+    });
     res.json({ success: true, ...result });
   } catch (error) { next(error); }
 }
