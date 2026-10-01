@@ -128,3 +128,44 @@ export async function syncSiteDocumentAfterLegacySave(tx: WorkspaceTransaction, 
 export function legacyMirror(document: SiteDocument): Prisma.InputJsonValue {
   return siteDocumentToLegacy(document) as Prisma.InputJsonValue;
 }
+
+
+export async function persistCanonicalSiteDocumentRevision(
+  tx: WorkspaceTransaction,
+  website: Pick<WebsiteLike, "id"|"organizationId"|"workspaceId"|"documentVersion">,
+  documentInput: SiteDocument,
+  actorId: string | null,
+  commands: Array<{ type: string; [key: string]: unknown }>,
+  source: string,
+): Promise<void> {
+  if (!website.organizationId) return;
+  const document = validateSiteDocument(documentInput);
+  await setSiteDocumentTenant(tx, website.organizationId);
+  await tx.siteDocumentState.upsert({
+    where: { websiteId: website.id },
+    update: { schemaVersion: document.schemaVersion, revision: website.documentVersion, document: document as Prisma.InputJsonValue, updatedBy: actorId },
+    create: {
+      websiteId: website.id, organizationId: website.organizationId, workspaceId: website.workspaceId,
+      schemaVersion: document.schemaVersion, revision: website.documentVersion,
+      document: document as Prisma.InputJsonValue, updatedBy: actorId,
+    },
+  });
+  await tx.siteDocumentRevision.upsert({
+    where: { websiteId_revision: { websiteId: website.id, revision: website.documentVersion } },
+    update: { schemaVersion: document.schemaVersion, document: document as Prisma.InputJsonValue, commands: commands as unknown as Prisma.InputJsonValue, source, actorId },
+    create: {
+      websiteId: website.id, organizationId: website.organizationId, workspaceId: website.workspaceId,
+      revision: website.documentVersion, schemaVersion: document.schemaVersion,
+      document: document as Prisma.InputJsonValue, commands: commands as unknown as Prisma.InputJsonValue, source, actorId,
+    },
+  });
+  if (commands.length) {
+    await tx.siteDocumentCommand.deleteMany({ where: { websiteId: website.id, revision: website.documentVersion } });
+    await tx.siteDocumentCommand.createMany({ data: commands.map((command, sequence) => ({
+      websiteId: website.id, organizationId: website.organizationId!, workspaceId: website.workspaceId,
+      revision: website.documentVersion, sequence, actorId, source,
+      commandType: String(command.type).slice(0, 100), payload: command as unknown as Prisma.InputJsonValue,
+    })) });
+  }
+  await syncCmsProjection(tx, website, document, actorId);
+}
