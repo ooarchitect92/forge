@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { applySiteCommands } from "../domain/site-commands.js";
+import { diffVisualSiteDocuments } from "../domain/site-document-diff.js";
+import { legacyWebsiteToSiteDocument, siteDocumentToLegacy } from "../domain/site-document-legacy.js";
 import { validateSiteDocument, type SiteDocument } from "../domain/site-document.js";
+import { figmaToSiteCommands } from "../integrations/figma/site-document-figma.js";
 
 function document(): SiteDocument {
   return validateSiteDocument({
@@ -13,12 +16,13 @@ function document(): SiteDocument {
     styles: [],
     tokens: [],
     assets: [],
-    cms: { collections: [], bindings: [] },
+    cms: { collections: [], items: [], bindings: [] },
     interactions: [],
     forms: [],
     locales: [],
     experiments: [],
     integrations: [],
+    extensions: {},
   });
 }
 
@@ -33,11 +37,13 @@ test("typed commands mutate a cloned document and preserve the source", () => {
   const next = applySiteCommands(source, [
     { type: "element.insert", pageId: "home", element: { id: "hero", type: "section", props: {}, styles: {}, children: [] } },
     { type: "element.updateProperties", pageId: "home", elementId: "hero", props: { role: "banner" } },
+    { type: "element.updateStyles", pageId: "home", elementId: "hero", styles: { display: "grid" } },
     { type: "token.set", token: { id: "color-primary", name: "Primary", category: "color", value: "#102A43" } },
   ]);
   assert.equal(source.pages[0]?.elements.length, 0);
   assert.equal(next.pages[0]?.elements[0]?.id, "hero");
   assert.equal(next.pages[0]?.elements[0]?.props.role, "banner");
+  assert.equal(next.pages[0]?.elements[0]?.styles.display, "grid");
   assert.equal(next.tokens[0]?.value, "#102A43");
 });
 
@@ -45,4 +51,125 @@ test("commands reject missing targets instead of silently drifting", () => {
   assert.throws(() => applySiteCommands(document(), [
     { type: "element.delete", pageId: "home", elementId: "missing" },
   ]), /Element was not found/);
+});
+
+test("element.move cannot create a parent cycle", () => {
+  const source = applySiteCommands(document(), [
+    { type: "element.insert", pageId: "home", element: {
+      id: "parent", type: "container", props: {}, styles: {}, children: [
+        { id: "child", type: "container", props: {}, styles: {}, children: [] },
+      ],
+    } },
+  ]);
+  assert.throws(() => applySiteCommands(source, [
+    { type: "element.move", pageId: "home", elementId: "parent", newParentId: "child" },
+  ]), /Parent element was not found|inside itself/);
+});
+
+test("CMS commands create collection, field, item and binding with referential integrity", () => {
+  const withElement = applySiteCommands(document(), [
+    { type: "element.insert", pageId: "home", element: { id: "title", type: "text", props: {}, styles: {}, children: [] } },
+  ]);
+  const next = applySiteCommands(withElement, [
+    { type: "cms.collection.create", collection: { id: "posts", name: "Posts", slug: "posts", fields: [] } },
+    { type: "cms.field.add", collectionId: "posts", field: { id: "post-title", name: "Title", key: "title", type: "text", required: true, config: {} } },
+    { type: "cms.item.create", item: { id: "post-1", collectionId: "posts", title: "Hello", slug: "hello", status: "DRAFT", values: { title: "Hello" } } },
+    { type: "cms.field.bind", binding: { id: "binding-1", elementId: "title", property: "content", collectionId: "posts", fieldId: "post-title" } },
+  ]);
+  assert.equal(next.cms.collections[0]?.fields[0]?.key, "title");
+  assert.equal(next.cms.items[0]?.values.title, "Hello");
+  assert.equal(next.cms.bindings[0]?.elementId, "title");
+});
+
+test("invalid CMS references are rejected by the canonical validator", () => {
+  const value = document();
+  value.cms.items.push({ id: "bad", collectionId: "missing", status: "DRAFT", values: {} });
+  assert.throws(() => validateSiteDocument(value), /unknown collection/);
+});
+
+test("legacy CanonicalWebsiteData round-trips visual state without discarding unknown top-level fields", () => {
+  const legacy = {
+    version: 9,
+    homePageId: "home",
+    pages: [{ id: "home", name: "Home", slug: "/", elements: [{ id: "hero", type: "heading", content: "Hello", customAttribute: "keep-me", styles: { color: "#123456" } }] }],
+    elements: [{ id: "hero", type: "heading", content: "Hello", customAttribute: "keep-me", styles: { color: "#123456" } }],
+    siteSettings: { siteName: "Legacy Forge", siteLanguage: "en" },
+    globalStyles: { colors: { primary: "#123456" }, typography: { fontFamily: "Inter" } },
+    siteParts: {},
+    navigation: [],
+    publishing: { status: "DRAFT" },
+    deployment: { provider: "none" },
+    unknownFutureFeature: { enabled: true },
+  };
+  const canonical = legacyWebsiteToSiteDocument({ websiteId: "site-legacy", name: "Legacy Forge", slug: "legacy-forge", editorData: legacy });
+  assert.equal(canonical.pages[0]?.elements[0]?.props.customAttribute, "keep-me");
+  assert.equal(canonical.tokens.some(token => token.name === "colors.primary"), true);
+  const restored = siteDocumentToLegacy(canonical);
+  assert.deepEqual(restored.unknownFutureFeature, { enabled: true });
+  assert.equal(restored.pages[0]?.elements[0]?.customAttribute, "keep-me");
+});
+
+test("legacy CPT definitions and entries are imported into CMS 2.0", () => {
+  const canonical = legacyWebsiteToSiteDocument({
+    websiteId: "site-cms",
+    name: "CMS site",
+    editorData: { version: 1, elements: [] },
+    cmsTypes: [{
+      id: "articles",
+      name: "Articles",
+      slug: "articles",
+      fields: [{ id: "headline", name: "Headline", slug: "headline", type: "text", required: true }],
+      entries: [{ id: "article-1", title: "First", slug: "first", status: "PUBLISHED", data: { headline: "First" } }],
+    }],
+  });
+  assert.equal(canonical.cms.collections[0]?.id, "articles");
+  assert.equal(canonical.cms.collections[0]?.fields[0]?.key, "headline");
+  assert.equal(canonical.cms.items[0]?.values.headline, "First");
+});
+
+test("visual diff emits typed commands and preserves dynamic CMS state", () => {
+  const current = applySiteCommands(document(), [
+    { type: "cms.collection.create", collection: { id: "posts", name: "Posts", slug: "posts", fields: [] } },
+    { type: "cms.item.create", item: { id: "post-1", collectionId: "posts", status: "DRAFT", values: { title: "Keep" } } },
+  ]);
+  const target = validateSiteDocument({
+    ...current,
+    pages: [{ id: "new-home", name: "Home", slug: "/", settings: {}, elements: [] }],
+    tokens: [{ id: "stitch-primary", name: "Primary", category: "color", value: "#111111", source: "stitch" }],
+  });
+  const commands = diffVisualSiteDocuments(current, target);
+  const next = applySiteCommands(current, commands);
+  assert.equal(next.pages[0]?.id, "new-home");
+  assert.equal(next.cms.items[0]?.id, "post-1");
+  assert.equal(next.tokens[0]?.id, "stitch-primary");
+});
+
+test("Figma import converts frames, nodes and variables into typed commands", () => {
+  const proposal = figmaToSiteCommands({
+    fileKey: "AbCdEf123",
+    current: document(),
+    file: {
+      name: "Marketing",
+      version: "42",
+      document: {
+        id: "0:0", type: "DOCUMENT", children: [{
+          id: "0:1", type: "CANVAS", name: "Pages", children: [{
+            id: "1:1", type: "FRAME", name: "Landing", layoutMode: "VERTICAL", children: [
+              { id: "1:2", type: "TEXT", name: "Hero", characters: "Build faster", style: { fontFamily: "Inter", fontSize: 48 }, fills: [{ type: "SOLID", color: { r: 0, g: 0, b: 0 } }] },
+            ],
+          }],
+        }],
+      },
+    },
+    variables: { meta: { variables: {
+      "VariableID:1": { id: "VariableID:1", name: "Brand/Primary", resolvedType: "COLOR", valuesByMode: { "mode:1": { r: 0.1, g: 0.2, b: 0.3, a: 1 } } },
+    } } },
+  });
+  assert.equal(proposal.version, "42");
+  assert.equal(proposal.commands.some(command => command.type === "page.create"), true);
+  assert.equal(proposal.commands.some(command => command.type === "token.set"), true);
+  const page = proposal.commands.find(command => command.type === "page.create");
+  assert.ok(page && page.type === "page.create");
+  assert.equal(page.page.elements[0]?.content, "Build faster");
+  assert.equal(proposal.mappings.some(mapping => mapping.kind === "NODE" && mapping.externalId === "1:2"), true);
 });
