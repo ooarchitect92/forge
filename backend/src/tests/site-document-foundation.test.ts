@@ -5,6 +5,8 @@ import { diffVisualSiteDocuments } from "../domain/site-document-diff.js";
 import { legacyWebsiteToSiteDocument, siteDocumentToLegacy } from "../domain/site-document-legacy.js";
 import { validateSiteDocument, type SiteDocument } from "../domain/site-document.js";
 import { figmaToSiteCommands } from "../integrations/figma/site-document-figma.js";
+import { resolveCmsBindings } from "../domain/site-document-cms.js";
+import { siteDocumentToPublishableLegacy } from "../domain/site-document-publish.js";
 
 function document(): SiteDocument {
   return validateSiteDocument({
@@ -172,4 +174,24 @@ test("Figma import converts frames, nodes and variables into typed commands", ()
   assert.ok(page && page.type === "page.create");
   assert.equal(page.page.elements[0]?.content, "Build faster");
   assert.equal(proposal.mappings.some(mapping => mapping.kind === "NODE" && mapping.externalId === "1:2"), true);
+});
+
+
+test("CMS bindings resolve only the selected item and publish expands template pages", () => {
+  let value = applySiteCommands(document(), [
+    { type: "element.insert", pageId: "home", element: { id: "article-title", type: "heading", props: {}, styles: {}, children: [] } },
+    { type: "page.update", pageId: "home", patch: { settings: { cmsCollectionId: "posts", cmsPathPattern: "/blog/{slug}" } } },
+    { type: "cms.collection.create", collection: { id: "posts", name: "Posts", slug: "posts", fields: [] } },
+    { type: "cms.field.add", collectionId: "posts", field: { id: "title-field", name: "Title", key: "title", type: "text", required: true, config: {} } },
+    { type: "cms.item.create", item: { id: "post-a", collectionId: "posts", title: "A", slug: "a", status: "PUBLISHED", values: { title: "Article A" } } },
+    { type: "cms.item.create", item: { id: "post-b", collectionId: "posts", title: "B", slug: "b", status: "DRAFT", values: { title: "Article B" } } },
+    { type: "cms.field.bind", binding: { id: "title-binding", elementId: "article-title", property: "content", collectionId: "posts", fieldId: "title-field" } },
+  ]);
+  const resolved = resolveCmsBindings(value, "home", "post-a");
+  assert.equal(resolved.elements[0]?.content, "Article A");
+  const published = siteDocumentToPublishableLegacy(value);
+  assert.equal(published.pages.length, 1);
+  assert.equal(published.pages[0]?.slug, "/blog/a");
+  assert.equal(published.pages[0]?.elements[0]?.content, "Article A");
+  assert.equal(published.canonicalCms.items.length, 2);
 });
