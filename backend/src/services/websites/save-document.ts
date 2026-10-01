@@ -1,11 +1,12 @@
 import type { Prisma } from "../../generated/prisma/index.js";
+import { applySiteCommands, parseSiteCommands } from "../../domain/site-commands.js";
 import { AppError } from "../../utils/app-error.js";
 import { effectiveCapability } from "../permissions/effective-capability.js";
 import { workspaceCommand } from "../workspaces/command.js";
 import { getScopedWebsiteInTransaction } from "./scoped-access.js";
 import { authorizeDocumentEdit, canonicalDocumentJson, documentObject, expectedDocumentVersion } from "./document-policy.js";
 import type { WorkspaceTransaction } from "../workspaces/access.js";
-import { syncSiteDocumentAfterLegacySave } from "./site-document-storage.js";
+import { ensureSiteDocumentState, legacyMirror, persistCanonicalSiteDocumentRevision, syncSiteDocumentAfterLegacySave } from "./site-document-storage.js";
 
 export interface DocumentWriteContext { key: string; expectedVersion: number; }
 export interface DocumentPatch {
@@ -69,12 +70,21 @@ export async function saveWebsiteDocument(websiteId: string, actorId: string, in
       return scope;
     },
     execute: async (tx, { website, can }) => {
+      let typedProposal: { document: ReturnType<typeof applySiteCommands>; commands: ReturnType<typeof parseSiteCommands> } | null = null;
+      let changesetForSource: Awaited<ReturnType<typeof tx.aiChangeset.findUnique>> | null = null;
       if (source) {
         const changeset = await tx.aiChangeset.findUnique({ where: { id: source.changesetId } });
+        changesetForSource = changeset;
         if (!changeset || changeset.websiteId !== websiteId || changeset.organizationId !== website.organizationId || changeset.workspaceId !== website.workspaceId) throw new AppError("Changeset not found", 404, "AI_CHANGESET_NOT_FOUND");
         if (changeset.status !== "PENDING_REVIEW") throw new AppError("Changeset is not awaiting review", 409, "AI_CHANGESET_STATE");
         if (changeset.expectedDocumentVersion !== version) throw new AppError("Changeset version does not match the reviewed document", 412, "DOCUMENT_VERSION_CONFLICT");
         if (canonicalDocumentJson(changeset.proposedDocument) !== canonicalDocumentJson(patch.editorData)) throw new AppError("Changeset document does not match the reviewed proposal", 409, "AI_CHANGESET_STATE");
+        if (changeset.proposedCommands !== null && changeset.proposedCommands !== undefined) {
+          const commands = parseSiteCommands(changeset.proposedCommands);
+          const canonical = await ensureSiteDocumentState(tx, website, actorId);
+          if (canonical.revision !== version) throw new AppError("The canonical SiteDocument changed after this proposal was reviewed", 412, "SITE_DOCUMENT_REVISION_CONFLICT");
+          typedProposal = { document: applySiteCommands(canonical.document, commands), commands };
+        }
       }
       if (website.documentVersion !== version) throw new AppError("The website changed after you loaded it. Reload or compare your unsaved changes before saving.", 412, "DOCUMENT_VERSION_CONFLICT");
       if (patch.status !== undefined && patch.status !== website.status) throw new AppError("Use the authorized publishing operation to change publication state", 403, "PUBLISH_COMMAND_REQUIRED");
@@ -97,13 +107,17 @@ export async function saveWebsiteDocument(websiteId: string, actorId: string, in
         const accesses = await tx.componentAccess.findMany({ where: { websiteId, userId: actorId, permission: "EDIT" }, take: 1001 });
         if (accesses.length > 1000) throw new AppError("Component policy exceeds the supported budget", 503, "POLICY_BUDGET_EXCEEDED");
         const editableProtectedIds = new Set(accesses.filter(access => can("EDIT", access.componentId)).map(access => access.componentId));
-        data.editorData = authorizeDocumentEdit(current, patch.editorData as ReturnType<typeof documentObject>, {
+        const proposedEditorData = typedProposal ? documentObject(legacyMirror(typedProposal.document)) : patch.editorData as ReturnType<typeof documentObject>;
+        data.editorData = authorizeDocumentEdit(current, proposedEditorData, {
           canDesign: can("EDIT_DESIGN"), canContent: can("EDIT_CONTENT"), canManage: can("MANAGE_PERMISSIONS"), canSeo: can("EDIT_SEO"), editableProtectedIds,
         }) as Prisma.InputJsonValue;
       }
       const saved = await tx.website.update({ where: { id: websiteId, documentVersion: version }, data,
         select: { id: true, name: true, slug: true, status: true, documentVersion: true, updatedAt: true, organizationId: true, workspaceId: true, editorData: true } });
-      if (patch.editorData !== undefined) await syncSiteDocumentAfterLegacySave(tx, saved, actorId);
+      if (patch.editorData !== undefined) {
+        if (typedProposal) await persistCanonicalSiteDocumentRevision(tx, saved, typedProposal.document, actorId, typedProposal.commands, "AI");
+        else await syncSiteDocumentAfterLegacySave(tx, saved, actorId);
+      }
       const acknowledgement: DocumentAcknowledgement = {
         id: saved.id, name: saved.name, slug: saved.slug, status: saved.status,
         documentVersion: saved.documentVersion, updatedAt: saved.updatedAt.toISOString(),
