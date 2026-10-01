@@ -1,7 +1,13 @@
 import type { SiteCommand, SiteDocumentEnvelope, SiteDocumentRevisionSummary } from "./types";
 
 export class SiteDocumentApiError extends Error {
-  constructor(message:string, public status:number, public code?:string){super(message);}
+  status: number;
+  code?: string;
+  constructor(message:string,status:number,code?:string){
+    super(message);
+    this.status=status;
+    this.code=code;
+  }
 }
 async function response<T>(res:Response):Promise<T>{
   let body:any={}; try{body=await res.json();}catch{}
