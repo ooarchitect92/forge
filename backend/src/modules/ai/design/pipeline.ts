@@ -64,6 +64,12 @@ export async function runDesignExecution(executionId: string, job: { id: string;
     const prompt = decryptPrompt(execution.promptCiphertext);
     const website = await transaction(tx => tx.website.findUniqueOrThrow({ where: { id: execution.websiteId } }));
     if (website.documentVersion !== execution.expectedDocumentVersion) throw new AppError("The website changed before this execution started", 412, "DOCUMENT_VERSION_CONFLICT");
+    const designSystemContext = await transaction(async tx => {
+      const canonical = await ensureSiteDocumentState(tx, website, execution.actorId);
+      const tokens = canonical.document.tokens.slice(0, 80).map(token => ({ name: token.name, category: token.category, value: token.value }));
+      const components = canonical.document.components.slice(0, 80).map(component => component.name);
+      return { tokens, components };
+    });
     // A linked retry can reuse only completed checkpoints at the same base version.
     if (execution.parentExecutionId) {
       const parent = await prisma.aiExecution.findUniqueOrThrow({ where: { id: execution.parentExecutionId } });
@@ -82,7 +88,7 @@ export async function runDesignExecution(executionId: string, job: { id: string;
       const operations = await stage("EDIT", () => ports.planner.edit(base, prompt, scope));
       document = applyScopedEdits(base, operations, scope);
     } else {
-      const plan = sitePlanSchema.parse(await stage("PLAN", () => ports.planner.plan(prompt)));
+      const plan = sitePlanSchema.parse(await stage("PLAN", () => ports.planner.plan(`${prompt}\n\nExisting Forge design-system context (reuse where appropriate; do not reveal as site copy): ${JSON.stringify(designSystemContext)}`)));
       if (plan.pages.length > config.maxPages) throw new AppError("Plan exceeds the configured page limit", 422, "AI_PAGE_LIMIT");
       setupRequired = plan.setupRequired;
       const projectId = await stage("PROJECT", () => ports.designer.createProject(`Forge ${executionId}`), true);
@@ -90,7 +96,7 @@ export async function runDesignExecution(executionId: string, job: { id: string;
       for (let index = 0; index < plan.pages.length; index++) {
         const page = plan.pages[index]!;
         const screen = await stage(`SCREEN_${index}`, () => ports.designer.generate(projectId,
-          `${DESIGN_CONTRACT}\nShared design: ${plan.design}\nSite routes: ${JSON.stringify(plan.pages.map(item => ({ name: item.name, slug: item.slug })))}\nPage: ${page.name}\n${page.brief}`), true);
+          `${DESIGN_CONTRACT}\nShared design: ${plan.design}\nExisting Forge design system: ${JSON.stringify(designSystemContext)}\nSite routes: ${JSON.stringify(plan.pages.map(item => ({ name: item.name, slug: item.slug })))}\nPage: ${page.name}\n${page.brief}`), true);
         const html = await stage(`EXPORT_${index}`, () => ports.designer.html(projectId, screen.screenId));
         const elements = await stage(`CONVERT_${index}`, async () => {
           try { return await ports.converter.convert(html, `${executionId}:${index}`); }
