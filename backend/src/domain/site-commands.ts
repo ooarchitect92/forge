@@ -56,6 +56,9 @@ export const siteCommandSchema = z.discriminatedUnion("type", [
 ]);
 
 export type SiteCommand = z.infer<typeof siteCommandSchema>;
+type ElementCommand = Extract<SiteCommand, { type:
+  "element.insert" | "element.delete" | "element.move" | "element.updateProperties" | "element.updateStyles"
+}>;
 
 function clone<T>(value: T): T { return structuredClone(value); }
 
@@ -128,28 +131,32 @@ export function applySiteCommands(current: SiteDocument, commandsInput: unknown)
       continue;
     }
 
-    if (command.type.startsWith("element.")) {
-      const page = next.pages.find(candidate => candidate.id === command.pageId);
+    if (
+      command.type === "element.insert" || command.type === "element.delete" || command.type === "element.move" ||
+      command.type === "element.updateProperties" || command.type === "element.updateStyles"
+    ) {
+      const elementCommand = command as ElementCommand;
+      const page = next.pages.find(candidate => candidate.id === elementCommand.pageId);
       if (!page) throw new AppError("Command references an unknown page", 422, "SITE_COMMAND_TARGET_NOT_FOUND");
-      if (command.type === "element.insert") {
-        if (findElement(page.elements, command.element.id)) throw new AppError("Element already exists", 409, "SITE_COMMAND_CONFLICT");
-        placeElement(page.elements, command.parentId, clone(command.element), command.index);
-      } else if (command.type === "element.delete") {
-        if (!takeElement(page.elements, command.elementId)) throw new AppError("Element was not found", 422, "SITE_COMMAND_TARGET_NOT_FOUND");
-      } else if (command.type === "element.move") {
-        const moving = takeElement(page.elements, command.elementId);
+      if (elementCommand.type === "element.insert") {
+        if (findElement(page.elements, elementCommand.element.id)) throw new AppError("Element already exists", 409, "SITE_COMMAND_CONFLICT");
+        placeElement(page.elements, elementCommand.parentId, clone(elementCommand.element), elementCommand.index);
+      } else if (elementCommand.type === "element.delete") {
+        if (!takeElement(page.elements, elementCommand.elementId)) throw new AppError("Element was not found", 422, "SITE_COMMAND_TARGET_NOT_FOUND");
+      } else if (elementCommand.type === "element.move") {
+        const moving = takeElement(page.elements, elementCommand.elementId);
         if (!moving) throw new AppError("Element was not found", 422, "SITE_COMMAND_TARGET_NOT_FOUND");
-        try { placeElement(page.elements, command.newParentId, moving, command.index); }
+        try { placeElement(page.elements, elementCommand.newParentId, moving, elementCommand.index); }
         catch (error) { placeElement(page.elements, undefined, moving); throw error; }
-      } else if (command.type === "element.updateProperties") {
-        const element = findElement(page.elements, command.elementId);
+      } else if (elementCommand.type === "element.updateProperties") {
+        const element = findElement(page.elements, elementCommand.elementId);
         if (!element) throw new AppError("Element was not found", 422, "SITE_COMMAND_TARGET_NOT_FOUND");
-        element.props = { ...element.props, ...clone(command.props) };
+        element.props = { ...element.props, ...clone(elementCommand.props) };
       } else {
-        const element = findElement(page.elements, command.elementId);
+        const element = findElement(page.elements, elementCommand.elementId);
         if (!element) throw new AppError("Element was not found", 422, "SITE_COMMAND_TARGET_NOT_FOUND");
-        element.styles = { ...element.styles, ...clone(command.styles) };
-        if (command.responsiveStyles) element.responsiveStyles = { ...(element.responsiveStyles ?? {}), ...clone(command.responsiveStyles) };
+        element.styles = { ...element.styles, ...clone(elementCommand.styles) };
+        if (elementCommand.responsiveStyles) element.responsiveStyles = { ...(element.responsiveStyles ?? {}), ...clone(elementCommand.responsiveStyles) };
       }
       continue;
     }
