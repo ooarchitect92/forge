@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS cms_items_v2 (
   "createdAt" timestamptz NOT NULL DEFAULT now(),
   "updatedAt" timestamptz NOT NULL DEFAULT now()
 );
-CREATE UNIQUE INDEX IF NOT EXISTS cms_items_v2_collection_slug_unique ON cms_items_v2 ("collectionId",slug) WHERE slug IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS cms_items_v2_collection_slug_unique ON cms_items_v2 ("collectionId",slug);
 CREATE INDEX IF NOT EXISTS cms_items_v2_org_site_collection_status_idx ON cms_items_v2 ("organizationId","websiteId","collectionId",status);
 
 CREATE TABLE IF NOT EXISTS cms_bindings_v2 (
