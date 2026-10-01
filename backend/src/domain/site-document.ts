@@ -1,25 +1,27 @@
 import { z } from "zod";
 import { AppError } from "../utils/app-error.js";
 
-const id = z.string().min(1).max(200);
-const jsonScalar = z.union([z.string(), z.number().finite(), z.boolean(), z.null()]);
-type JsonValue = z.infer<typeof jsonScalar> | JsonValue[] | { [key: string]: JsonValue };
-const jsonValue: z.ZodType<JsonValue> = z.lazy(() => z.union([
-  jsonScalar,
-  z.array(jsonValue),
-  z.record(z.string(), jsonValue),
+export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
+  z.null(), z.boolean(), z.number().finite(), z.string(),
+  z.array(jsonValueSchema).max(20_000),
+  z.record(z.string().max(500), jsonValueSchema),
 ]));
+export const jsonObjectSchema = z.record(z.string().max(500), jsonValueSchema);
+const id = z.string().min(1).max(200);
 
 export const siteElementSchema: z.ZodType<any> = z.lazy(() => z.object({
   id,
   type: z.string().min(1).max(120),
   name: z.string().max(255).optional(),
-  props: z.record(z.string(), jsonValue).default({}),
-  styles: z.record(z.string(), jsonValue).default({}),
-  content: jsonValue.optional(),
-  children: z.array(siteElementSchema).default([]),
+  props: jsonObjectSchema.default({}),
+  styles: jsonObjectSchema.default({}),
+  responsiveStyles: jsonObjectSchema.optional(),
+  content: jsonValueSchema.optional(),
+  children: z.array(siteElementSchema).max(10_000).default([]),
   componentId: id.optional(),
   isProtected: z.boolean().optional(),
+  bindings: jsonObjectSchema.optional(),
 }).strict());
 
 export const pageNodeSchema = z.object({
@@ -28,33 +30,40 @@ export const pageNodeSchema = z.object({
   slug: z.string().min(1).max(512),
   title: z.string().max(255).optional(),
   elements: z.array(siteElementSchema).max(10_000).default([]),
-  settings: z.record(z.string(), jsonValue).default({}),
+  settings: jsonObjectSchema.default({}),
+  seo: jsonObjectSchema.optional(),
+}).strict();
+
+export const componentVariantSchema = z.object({
+  id,
+  name: z.string().min(1).max(255),
+  props: jsonObjectSchema.default({}),
+  styles: jsonObjectSchema.default({}),
 }).strict();
 
 export const componentDefSchema = z.object({
   id,
   name: z.string().min(1).max(255),
   root: siteElementSchema,
-  variants: z.array(z.object({
-    id,
-    name: z.string().min(1).max(255),
-    props: z.record(z.string(), jsonValue).default({}),
-  }).strict()).max(500).default([]),
+  variants: z.array(componentVariantSchema).max(500).default([]),
+  slots: z.array(z.object({ id, name: z.string().min(1).max(255), accepts: z.array(z.string().max(120)).max(100).default([]) }).strict()).max(100).default([]),
 }).strict();
 
 export const styleRuleSchema = z.object({
   id,
   selector: z.string().min(1).max(500),
-  properties: z.record(z.string(), jsonValue),
+  properties: jsonObjectSchema,
   breakpoint: z.string().max(120).optional(),
+  state: z.string().max(120).optional(),
 }).strict();
 
 export const designTokenSchema = z.object({
   id,
   name: z.string().min(1).max(255),
   category: z.enum(["color", "typography", "spacing", "radius", "shadow", "size", "other"]),
-  value: jsonValue,
+  value: jsonValueSchema,
   description: z.string().max(1000).optional(),
+  source: z.enum(["forge", "figma", "stitch", "import"]).optional(),
 }).strict();
 
 export const assetSchema = z.object({
@@ -62,7 +71,7 @@ export const assetSchema = z.object({
   kind: z.enum(["image", "video", "file", "font", "other"]),
   url: z.string().min(1).max(4096),
   name: z.string().max(500).optional(),
-  metadata: z.record(z.string(), jsonValue).default({}),
+  metadata: jsonObjectSchema.default({}),
 }).strict();
 
 export const collectionFieldSchema = z.object({
@@ -72,13 +81,24 @@ export const collectionFieldSchema = z.object({
   type: z.enum(["text", "richText", "number", "boolean", "date", "image", "file", "reference", "multiReference", "json"]),
   required: z.boolean().default(false),
   referenceCollectionId: id.optional(),
+  config: jsonObjectSchema.default({}),
 }).strict();
 
 export const collectionDefSchema = z.object({
   id,
   name: z.string().min(1).max(255),
   slug: z.string().min(1).max(255),
+  description: z.string().max(2000).optional(),
   fields: z.array(collectionFieldSchema).max(500).default([]),
+}).strict();
+
+export const collectionItemSchema = z.object({
+  id,
+  collectionId: id,
+  title: z.string().max(500).optional(),
+  slug: z.string().max(500).optional(),
+  status: z.enum(["DRAFT", "PUBLISHED", "ARCHIVED"]).default("DRAFT"),
+  values: jsonObjectSchema.default({}),
 }).strict();
 
 export const cmsBindingSchema = z.object({
@@ -89,13 +109,51 @@ export const cmsBindingSchema = z.object({
   fieldId: id,
 }).strict();
 
+export const interactionSchema = z.object({
+  id,
+  elementId: id.optional(),
+  trigger: z.string().min(1).max(120),
+  action: z.string().min(1).max(120),
+  config: jsonObjectSchema.default({}),
+}).strict();
+
+export const formSchema = z.object({
+  id,
+  name: z.string().min(1).max(255),
+  fields: z.array(jsonObjectSchema).max(500).default([]),
+  actions: z.array(jsonObjectSchema).max(100).default([]),
+  settings: jsonObjectSchema.default({}),
+}).strict();
+
+export const localeOverlaySchema = z.object({
+  id,
+  locale: z.string().min(2).max(32),
+  values: jsonObjectSchema.default({}),
+}).strict();
+
+export const experimentSchema = z.object({
+  id,
+  name: z.string().min(1).max(255),
+  status: z.enum(["DRAFT", "RUNNING", "PAUSED", "ENDED"]).default("DRAFT"),
+  variants: z.array(jsonObjectSchema).max(100).default([]),
+  allocation: jsonObjectSchema.default({}),
+}).strict();
+
+export const integrationSchema = z.object({
+  id,
+  provider: z.string().min(1).max(120),
+  enabled: z.boolean().default(true),
+  config: jsonObjectSchema.default({}),
+}).strict();
+
 export const siteDocumentSchema = z.object({
   id,
-  schemaVersion: z.number().int().min(1),
+  schemaVersion: z.number().int().min(1).max(1000),
   site: z.object({
     title: z.string().min(1).max(255),
+    slug: z.string().max(255).optional(),
     defaultLocale: z.string().min(2).max(32).default("en"),
-    metadata: z.record(z.string(), jsonValue).default({}),
+    metadata: jsonObjectSchema.default({}),
   }).strict(),
   pages: z.array(pageNodeSchema).max(500).default([]),
   components: z.array(componentDefSchema).max(5_000).default([]),
@@ -104,17 +162,21 @@ export const siteDocumentSchema = z.object({
   assets: z.array(assetSchema).max(20_000).default([]),
   cms: z.object({
     collections: z.array(collectionDefSchema).max(2_000).default([]),
+    items: z.array(collectionItemSchema).max(50_000).default([]),
     bindings: z.array(cmsBindingSchema).max(20_000).default([]),
-  }).strict().default({ collections: [], bindings: [] }),
-  interactions: z.array(z.record(z.string(), jsonValue)).max(10_000).default([]),
-  forms: z.array(z.record(z.string(), jsonValue)).max(2_000).default([]),
-  locales: z.array(z.record(z.string(), jsonValue)).max(500).default([]),
-  experiments: z.array(z.record(z.string(), jsonValue)).max(2_000).default([]),
-  integrations: z.array(z.record(z.string(), jsonValue)).max(2_000).default([]),
+  }).strict().default({ collections: [], items: [], bindings: [] }),
+  interactions: z.array(interactionSchema).max(10_000).default([]),
+  forms: z.array(formSchema).max(2_000).default([]),
+  locales: z.array(localeOverlaySchema).max(500).default([]),
+  experiments: z.array(experimentSchema).max(2_000).default([]),
+  integrations: z.array(integrationSchema).max(2_000).default([]),
+  extensions: jsonObjectSchema.default({}),
 }).strict();
 
 export type SiteDocument = z.infer<typeof siteDocumentSchema>;
 export type SiteElement = z.infer<typeof siteElementSchema>;
+export type CollectionDef = z.infer<typeof collectionDefSchema>;
+export type CollectionItem = z.infer<typeof collectionItemSchema>;
 
 function unique(values: string[], label: string): void {
   const seen = new Set<string>();
@@ -146,7 +208,12 @@ export function validateSiteDocument(input: unknown): SiteDocument {
   unique(document.tokens.map(token => token.id), "Token");
   unique(document.assets.map(asset => asset.id), "Asset");
   unique(document.cms.collections.map(collection => collection.id), "Collection");
+  unique(document.cms.items.map(item => item.id), "CMS item");
   unique(document.cms.bindings.map(binding => binding.id), "CMS binding");
+  unique(document.forms.map(form => form.id), "Form");
+  unique(document.locales.map(locale => locale.id), "Locale overlay");
+  unique(document.experiments.map(experiment => experiment.id), "Experiment");
+  unique(document.integrations.map(integration => integration.id), "Integration");
 
   const elementIds: string[] = [];
   for (const page of document.pages) collectElementIds(page.elements, elementIds);
@@ -154,10 +221,24 @@ export function validateSiteDocument(input: unknown): SiteDocument {
   unique(elementIds, "Element");
 
   const collectionIds = new Set(document.cms.collections.map(collection => collection.id));
-  const fieldIds = new Set(document.cms.collections.flatMap(collection => collection.fields.map(field => field.id)));
+  const fieldToCollection = new Map<string, string>();
+  for (const collection of document.cms.collections) {
+    unique(collection.fields.map(field => field.id), `Field in collection ${collection.id}`);
+    unique(collection.fields.map(field => field.key), `Field key in collection ${collection.id}`);
+    for (const field of collection.fields) {
+      fieldToCollection.set(field.id, collection.id);
+      if (field.referenceCollectionId && !collectionIds.has(field.referenceCollectionId)) {
+        throw new AppError("CMS field references an unknown collection", 422, "SITE_DOCUMENT_INVALID");
+      }
+    }
+  }
+
   const knownElementIds = new Set(elementIds);
+  for (const item of document.cms.items) {
+    if (!collectionIds.has(item.collectionId)) throw new AppError("CMS item references an unknown collection", 422, "SITE_DOCUMENT_INVALID");
+  }
   for (const binding of document.cms.bindings) {
-    if (!collectionIds.has(binding.collectionId) || !fieldIds.has(binding.fieldId) || !knownElementIds.has(binding.elementId)) {
+    if (!collectionIds.has(binding.collectionId) || fieldToCollection.get(binding.fieldId) !== binding.collectionId || !knownElementIds.has(binding.elementId)) {
       throw new AppError("CMS binding references an unknown collection, field, or element", 422, "SITE_DOCUMENT_INVALID");
     }
   }
@@ -165,6 +246,6 @@ export function validateSiteDocument(input: unknown): SiteDocument {
   return document;
 }
 
-export function isCanonicalSiteDocument(input: unknown): boolean {
-  return !!input && typeof input === "object" && !Array.isArray(input) && "schemaVersion" in input && "site" in input;
+export function isCanonicalSiteDocument(input: unknown): input is SiteDocument {
+  return !!input && typeof input === "object" && !Array.isArray(input) && "schemaVersion" in input && "site" in input && "cms" in input;
 }
