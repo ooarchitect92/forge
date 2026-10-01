@@ -30,6 +30,8 @@ import {
   getSiteDocumentRevisionHandler,
   restoreSiteDocumentRevisionHandler,
   getCmsV2SnapshotHandler,
+  previewFigmaSyncHandler,
+  applyFigmaSyncHandler,
 } from "../controllers/siteDocument.controller.js";
 import {
   getMailerConfigHandler,
@@ -234,6 +236,8 @@ router.get("/:id/site-document/revisions", authorizeCapability("VIEW"), listSite
 router.get("/:id/site-document/revisions/:revision", authorizeCapability("VIEW"), getSiteDocumentRevisionHandler);
 router.post("/:id/site-document/revisions/:revision/restore", authorizeCapability("EDIT"), restoreSiteDocumentRevisionHandler);
 router.get("/:id/site-document/cms", authorizeCapability("VIEW"), getCmsV2SnapshotHandler);
+router.post("/:id/site-document/figma/preview", authorizeCapability("EDIT_DESIGN"), previewFigmaSyncHandler);
+router.post("/:id/site-document/figma/sync", authorizeCapability("EDIT_DESIGN"), applyFigmaSyncHandler);
 
 // Cookie Consent (F-438)
 router.get("/:id/cookie-consent", authorizeCapability("VIEW"), getCookieConsentHandler);
