@@ -8,6 +8,10 @@ import { canonicalSiteFromBlueprint } from "./site-blueprint.js";
 import { decryptPrompt, encryptPrompt, promptRetentionEnabled, retentionExpiry } from "./prompt-vault.js";
 import { validateSiteBrief } from "./site-brief.js";
 import { generateValidatedSiteBlueprint } from "./generate-site-blueprint.js";
+import { diffVisualSiteDocuments } from "../../domain/site-document-diff.js";
+import { legacyWebsiteToSiteDocument } from "../../domain/site-document-legacy.js";
+import { validateSiteDocument } from "../../domain/site-document.js";
+import { ensureSiteDocumentState } from "../../services/websites/site-document-storage.js";
 
 export async function generateSiteDraft(input: { websiteId: string; actorId: string; prompt: string; expectedVersion: number }, providerSnapshot?: { provider: string; model: string }) {
   validateSiteBrief(input.prompt);
@@ -30,8 +34,28 @@ export async function generateSiteDraft(input: { websiteId: string; actorId: str
   }
   const { editorData, pageNames, sectionCount } = draft;
   const changeset = await prisma.$transaction(async tx => {
-    await tx.aiExecution.update({ where: { id: execution.id }, data: { status: "COMPLETED", outputSummary: { requestId: result.requestId ?? null, pageCount: pageNames.length, sectionCount }, completedAt: new Date() } });
-    return tx.aiChangeset.create({ data: { executionId: execution.id, websiteId: website.id, workspaceId: website.workspaceId, organizationId: website.organizationId, actorId: input.actorId, expectedDocumentVersion: input.expectedVersion, proposedDocument: editorData, summary: { provider: result.provider, model: result.model, pageNames, pageCount: pageNames.length, sectionCount } } });
+    const canonical = await ensureSiteDocumentState(tx, website, input.actorId);
+    if (canonical.revision !== input.expectedVersion) throw new AppError("The canonical SiteDocument changed before the proposal was created", 412, "SITE_DOCUMENT_REVISION_CONFLICT");
+    const generatedVisual = legacyWebsiteToSiteDocument({ websiteId: website.id, name: website.name, slug: website.slug, editorData, cmsTypes: [] });
+    const targetCanonical = validateSiteDocument({
+      ...canonical.document,
+      site: { ...canonical.document.site, ...generatedVisual.site, metadata: { ...canonical.document.site.metadata, ...generatedVisual.site.metadata } },
+      pages: generatedVisual.pages,
+      tokens: [
+        ...canonical.document.tokens.filter(token => token.source !== "import"),
+        ...generatedVisual.tokens.map(token => ({ ...token, source: "import" as const })),
+      ],
+      extensions: { ...canonical.document.extensions, ...generatedVisual.extensions },
+    });
+    const proposedCommands = diffVisualSiteDocuments(canonical.document, targetCanonical);
+    if (!proposedCommands.length) throw new AppError("The generated proposal does not change the current site", 422, "AI_NO_CHANGES");
+    await tx.aiExecution.update({ where: { id: execution.id }, data: { status: "COMPLETED", outputSummary: { requestId: result.requestId ?? null, pageCount: pageNames.length, sectionCount, commandCount: proposedCommands.length }, completedAt: new Date() } });
+    return tx.aiChangeset.create({ data: {
+      executionId: execution.id, websiteId: website.id, workspaceId: website.workspaceId, organizationId: website.organizationId,
+      actorId: input.actorId, expectedDocumentVersion: input.expectedVersion, proposedDocument: editorData,
+      proposedCommands: proposedCommands as unknown as import("../../generated/prisma/index.js").Prisma.InputJsonValue,
+      summary: { provider: result.provider, model: result.model, pageNames, pageCount: pageNames.length, sectionCount, commandCount: proposedCommands.length },
+    } });
   });
   return { changeset };
 }
