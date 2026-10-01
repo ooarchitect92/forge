@@ -22,6 +22,16 @@ import {
   updateCookieConsentHandler,
 } from "../controllers/website.controller.js";
 import {
+  getSiteDocumentHandler,
+  initializeSiteDocumentHandler,
+  previewSiteDocumentCommandsHandler,
+  applySiteDocumentCommandsHandler,
+  listSiteDocumentRevisionsHandler,
+  getSiteDocumentRevisionHandler,
+  restoreSiteDocumentRevisionHandler,
+  getCmsV2SnapshotHandler,
+} from "../controllers/siteDocument.controller.js";
+import {
   getMailerConfigHandler,
   saveMailerConfigHandler,
   testMailerConnectionHandler,
@@ -215,6 +225,15 @@ router.get("/:id", authorizeCapability("VIEW"), getWebsiteByIdHandler);
 router.get("/:id/managed-details", authorizeCapability("VIEW"), getManagedWebsiteDetailsHandler);
 router.put("/:id", authorizeCapability("EDIT"), updateWebsiteHandler);
 router.delete("/:id", authorizeCapability("DELETE"), deleteWebsiteHandler);
+
+router.get("/:id/site-document", authorizeCapability("VIEW"), getSiteDocumentHandler);
+router.post("/:id/site-document/initialize", authorizeCapability("EDIT"), initializeSiteDocumentHandler);
+router.post("/:id/site-document/commands/preview", authorizeCapability("EDIT"), previewSiteDocumentCommandsHandler);
+router.post("/:id/site-document/commands", authorizeCapability("EDIT"), applySiteDocumentCommandsHandler);
+router.get("/:id/site-document/revisions", authorizeCapability("VIEW"), listSiteDocumentRevisionsHandler);
+router.get("/:id/site-document/revisions/:revision", authorizeCapability("VIEW"), getSiteDocumentRevisionHandler);
+router.post("/:id/site-document/revisions/:revision/restore", authorizeCapability("EDIT"), restoreSiteDocumentRevisionHandler);
+router.get("/:id/site-document/cms", authorizeCapability("VIEW"), getCmsV2SnapshotHandler);
 
 // Cookie Consent (F-438)
 router.get("/:id/cookie-consent", authorizeCapability("VIEW"), getCookieConsentHandler);
