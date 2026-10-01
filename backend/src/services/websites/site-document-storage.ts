@@ -1,4 +1,5 @@
 import type { Prisma } from "../../generated/prisma/index.js";
+import { AppError } from "../../utils/app-error.js";
 import type { WorkspaceTransaction } from "../workspaces/access.js";
 import { legacyWebsiteToSiteDocument, siteDocumentToLegacy, type LegacyCmsType } from "../../domain/site-document-legacy.js";
 import { validateSiteDocument, type SiteDocument } from "../../domain/site-document.js";
@@ -50,7 +51,7 @@ function mergeLegacyVisualState(existing: SiteDocument, fromLegacy: SiteDocument
 }
 
 export async function ensureSiteDocumentState(tx: WorkspaceTransaction, website: WebsiteLike, actorId?: string | null): Promise<{ document: SiteDocument; revision: number; created: boolean }> {
-  if (!website.organizationId) throw new Error("TENANT_MIGRATION_REQUIRED");
+  if (!website.organizationId) throw new AppError("Website ownership migration is required before SiteDocument use", 503, "TENANT_MIGRATION_REQUIRED");
   await setSiteDocumentTenant(tx, website.organizationId);
   const existing = await tx.siteDocumentState.findUnique({ where: { websiteId: website.id } });
   if (existing) return { document: validateSiteDocument(existing.document), revision: existing.revision, created: false };
