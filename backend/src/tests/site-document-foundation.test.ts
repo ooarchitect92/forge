@@ -177,6 +177,36 @@ test("Figma import converts frames, nodes and variables into typed commands", ()
 });
 
 
+test("Figma component sets, instances and named styles become canonical components and rules", () => {
+  const proposal=figmaToSiteCommands({
+    fileKey:"ComponentFile123",current:document(),
+    file:{
+      name:"Design System",version:"9",
+      document:{id:"0:0",type:"DOCUMENT",children:[{id:"0:1",type:"CANVAS",name:"Library",children:[
+        {id:"10:1",type:"COMPONENT_SET",name:"Button",children:[
+          {id:"10:2",type:"COMPONENT",name:"Size=Small,State=Default",fills:[{type:"SOLID",color:{r:0.1,g:0.2,b:0.3}}],children:[]},
+          {id:"10:3",type:"COMPONENT",name:"Size=Large,State=Default",children:[]},
+        ]},
+        {id:"20:1",type:"FRAME",name:"Home",children:[
+          {id:"20:2",type:"INSTANCE",name:"Primary button",componentId:"10:2",styles:{fill:"style:primary"},children:[]},
+        ]},
+      ]}]},
+      styles:{"style:primary":{name:"Primary Fill",node_id:"20:2",styleType:"FILL"}},
+    },
+    variables:null,
+  });
+  const next=applySiteCommands(document(),proposal.commands);
+  assert.equal(next.components.length,1);
+  assert.equal(next.components[0]?.name,"Button");
+  assert.equal(next.components[0]?.variants.length,2);
+  assert.equal(next.components[0]?.variants[0]?.props.Size,"Small");
+  assert.equal(next.pages[0]?.elements[0]?.componentId,next.components[0]?.id);
+  assert.equal(next.styles.length,1);
+  assert.match(next.styles[0]?.selector??"",/^\.figma-style-/);
+  assert.equal(proposal.mappings.some(mapping=>mapping.kind==="COMPONENT"),true);
+  assert.equal(proposal.mappings.some(mapping=>mapping.kind==="STYLE"),true);
+});
+
 test("CMS bindings resolve only the selected item and publish expands template pages", () => {
   let value = applySiteCommands(document(), [
     { type: "element.insert", pageId: "home", element: { id: "article-title", type: "heading", props: {}, styles: {}, children: [] } },
