@@ -40,6 +40,8 @@ jobs:
       - name: AI and worker contracts (fixtures, no live provider requests)
         working-directory: backend
         run: node --test dist/tests/site-document-foundation.test.js dist/tests/figma-token-push.test.js dist/tests/figma-oauth-vault.test.js dist/tests/ai-changeset-integration.test.js dist/tests/job-leases-integration.test.js dist/tests/ai-prompt-cleanup.test.js dist/tests/ai-site-brief.test.js dist/tests/ai-site-blueprint.test.js dist/tests/ai-site-repair.test.js
+      - name: SiteDocument migration dry-run
+        run: npm run site-document:migrate --prefix backend -- --limit=1
       - name: SiteDocument large-model benchmark
         working-directory: backend
         run: npm run site-document:benchmark
