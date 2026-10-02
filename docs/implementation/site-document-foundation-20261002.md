@@ -98,6 +98,12 @@ Migration directories:
 
 - `20261002020000_site_document_v1`
 - `20261002023000_ai_site_commands`
+- `20261002101500_figma_sync_conflicts`
+- `20261002104500_free_ai_credits`
+- `20261002110000_site_document_metrics`
+- `20261002113000_figma_oauth`
+- `20261002120000_figma_webhooks`
+- `20261002123000_figma_webhook_apply_state`
 
 New tables:
 
@@ -109,6 +115,10 @@ New tables:
 - `cms_items_v2`
 - `cms_bindings_v2`
 - `figma_node_mappings`
+- `site_document_metrics`
+- `figma_oauth_states`
+- `figma_webhook_subscriptions`
+- `figma_webhook_events`
 
 `ai_changesets.proposedCommands` stores the exact reviewed typed proposal alongside the legacy visual proposal for compatibility.
 
@@ -194,6 +204,10 @@ Existing destinations remain in place:
 - SFTP
 - WordPress
 
+## AI credits and provider governance
+
+Design executions now reserve organization-scoped `ai_credits` through the existing quota-reservation and usage-event ledgers before provider work is admitted. Successful proposals consume the reservation, safe failures/cancellation release it, and uncertain external outcomes consume it rather than risking unbounded double-spend. The free plan migration grants a bounded starter allowance instead of exposing provider keys.
+
 ## AI and Google Stitch
 
 The existing durable Stitch + Claude design pipeline remains the provider execution layer. This branch changes its mutation boundary:
@@ -218,6 +232,8 @@ Approved AI changesets with typed commands are applied from the server-stored pr
 
 `backend/src/integrations/figma/site-document-figma.ts`, `site-document-figma-push.ts` and `figma-sync.service.ts` implement governed import plus two-way design-token synchronization:
 
+- OAuth2 + PKCE connection flow with one-use encrypted state/verifier storage
+- governed secret-vault persistence and refresh-token support
 - organization/website scoped connector credential
 - no raw access token accepted from the browser
 - Figma Files REST import
@@ -227,7 +243,8 @@ Approved AI changesets with typed commands are applied from the server-stored pr
 - common text/layout/fill geometry mapping
 - Figma Variables -> Forge design tokens
 - deterministic external/local identities
-- mapping persistence for future reconciliation
+- mapping persistence with external version + local canonical hash
+- two-sided conflict detection with explicit abort / prefer-Figma resolution
 - preview before apply
 - typed commands for the final mutation
 - reviewed Forge → Figma Variables push for compatible color/number/string/boolean tokens
@@ -249,11 +266,14 @@ New files:
 - `frontend/src/features/site-document/client.ts`
 - `frontend/src/pages/dashboard/SiteDocumentControlCenter.tsx`
 - `frontend/src/pages/dashboard/CanonicalCmsManager.tsx`
+- `frontend/src/pages/dashboard/CanonicalDesignSystemManager.tsx`
+- `frontend/src/features/site-document/SiteDocumentProvider.tsx`
 
 Route:
 
 - `/dashboard/site-document/:websiteId`
 - `/dashboard/site-document/:websiteId/cms`
+- `/dashboard/site-document/:websiteId/design-system`
 
 The control center shows:
 
@@ -266,6 +286,9 @@ The control center shows:
 - warnings when Figma Variables are unavailable
 - Forge → Figma token push preview/apply
 - a command-native CMS 2.0 manager for collections, fields, items and element bindings
+- a command-native design-system manager for tokens, styles and component variants
+- Figma OAuth connection status, webhook watches, pending update review and conflict handling
+- 24-hour SiteDocument command latency/error telemetry including average and p95
 
 The existing Custom Post Types screen links into the canonical control center.
 
@@ -331,11 +354,11 @@ Do not drop the new tables during an incident rollback; they contain revision/au
 
 These are intentionally explicit rather than represented as completed:
 
-1. Forge -> Figma structural canvas-node/component writes and conflict UI. Design-token Variables sync is now two-way; arbitrary canvas mutation is not fabricated.
-2. Live-provider acceptance against real customer Figma/Stitch accounts; automated tests use fixtures/mocks.
-3. Full migration of every editor gesture from legacy whole-document saves to typed commands. Legacy saves are currently reconciled into SiteDocument safely.
-4. Full deprecation/removal of the old CustomPostType UI/API. A command-native CMS 2.0 manager now exists, while the legacy API remains for backward compatibility.
-5. Large-site performance qualification at production-scale page/CMS volumes.
-6. Operational dashboards/SLO alerts specifically for SiteDocument command latency and reconciliation failures.
+1. Forge -> Figma structural canvas-node/component writes still require a governed Figma Plugin/write adapter; Variables are two-way and inbound structural conflicts are reviewed explicitly.
+2. Live-provider acceptance against real customer Figma/Stitch accounts remains an external release gate; automated qualification uses fixtures/mocks and never invents provider success.
+3. Full migration of every legacy editor gesture from whole-document saves to typed commands remains incremental. New canonical managers and the editor provider use the command API; compatibility saves reconcile safely.
+4. Legacy CustomPostType APIs remain available for compatibility while CMS 2.0 is the canonical path for new work.
+5. Large-site/load qualification at production-scale page, element and CMS volumes remains a release gate.
+6. Command telemetry is implemented; production APM/SLO alert wiring and dashboard provisioning remain deployment-environment work.
 
 Nothing in this branch is presented as production-complete until the PR qualification matrix and the remaining live-provider gates pass.
