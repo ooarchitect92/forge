@@ -114,9 +114,9 @@ export default function SiteDocumentControlCenter() {
       const json=await client.figmaPluginExport();
       const blob=new Blob([json],{type:"application/json"});
       const url=URL.createObjectURL(blob);
-      const anchor=document.createElement("a");
+      const anchor=window.document.createElement("a");
       anchor.href=url;anchor.download=`forge-figma-${websiteId}-r${model.revision}.json`;
-      document.body.appendChild(anchor);anchor.click();anchor.remove();
+      window.document.body.appendChild(anchor);anchor.click();anchor.remove();
       URL.revokeObjectURL(url);
     }catch(failure){setError(errorMessage(failure));}finally{setBusy(false);}
   }
