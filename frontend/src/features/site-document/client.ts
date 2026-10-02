@@ -57,13 +57,13 @@ export function createSiteDocumentClient(apiUrl:string,websiteId:string){
       );
     },
     async figmaPreview(fileKey:string){
-      return response<{success:boolean;baseRevision:number;fileName:string;version:string;warnings:string[];commands:SiteCommand[]}>(
+      return response<{success:boolean;baseRevision:number;fileName:string;version:string;warnings:string[];commands:SiteCommand[];conflicts:Array<{kind:string;externalId:string;localId:string;reason:string}>}>(
         await fetch(`${base}/figma/preview`,{method:"POST",credentials:"include",headers:headers(),body:JSON.stringify({fileKey})})
       );
     },
-    async figmaSync(fileKey:string,expectedRevision:number,key=crypto.randomUUID()){
-      return response<{success:boolean;revision:number;figmaVersion:string;fileName:string;warnings:string[];mappingCount:number}>(
-        await fetch(`${base}/figma/sync`,{method:"POST",credentials:"include",headers:headers(key),body:JSON.stringify({fileKey,expectedRevision})})
+    async figmaSync(fileKey:string,expectedRevision:number,conflictPolicy:"abort"|"prefer-figma"="abort",key=crypto.randomUUID()){
+      return response<{success:boolean;revision:number;figmaVersion:string;fileName:string;warnings:string[];conflicts:Array<{kind:string;externalId:string;localId:string;reason:string}>;mappingCount:number}>(
+        await fetch(`${base}/figma/sync`,{method:"POST",credentials:"include",headers:headers(key),body:JSON.stringify({fileKey,expectedRevision,conflictPolicy})})
       );
     },
     async figmaTokenPushPreview(fileKey:string){
