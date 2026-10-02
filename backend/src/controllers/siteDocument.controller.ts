@@ -5,6 +5,7 @@ import {
   initializeSiteDocument, listSiteDocumentRevisions, previewSiteDocumentCommands, restoreSiteDocumentRevision,
 } from "../services/websites/site-document.service.js";
 import { applyFigmaSync, previewFigmaSync, previewFigmaTokenPush, pushFigmaTokens } from "../integrations/figma/figma-sync.service.js";
+import { getSiteDocumentMetrics } from "../services/websites/site-document-metrics.js";
 
 function key(req: Request): string {
   const value = req.header("Idempotency-Key");
@@ -133,5 +134,13 @@ export async function pushFigmaTokensHandler(req: Request, res: Response, next: 
       expectedRevision: int(req.body?.expectedRevision, "expectedRevision"),
     });
     res.json({ success: true, ...result });
+  } catch (error) { next(error); }
+}
+
+
+export async function getSiteDocumentMetricsHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ success: true, metrics: await getSiteDocumentMetrics(req.params.id as string, res.locals.user.id) });
   } catch (error) { next(error); }
 }
