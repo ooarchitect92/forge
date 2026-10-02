@@ -244,6 +244,17 @@ export function validateSiteDocument(input: unknown): SiteDocument {
     }
   }
 
+  const SECRET_CONFIG_KEYS=/^(?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|client[_-]?secret|private[_-]?key|secret|bearer)$/i;
+  const rejectInlineSecrets=(value:JsonValue,path:string):void=>{
+    if(Array.isArray(value)){value.forEach((item,index)=>rejectInlineSecrets(item,`${path}[${index}]`));return;}
+    if(!value||typeof value!=="object")return;
+    for(const [key,child] of Object.entries(value)){
+      if(SECRET_CONFIG_KEYS.test(key)) throw new AppError(`Integration config may not persist secret material at ${path}.${key}`,422,"SITE_DOCUMENT_SECRET_FORBIDDEN");
+      rejectInlineSecrets(child,`${path}.${key}`);
+    }
+  };
+  for(const integration of document.integrations) rejectInlineSecrets(integration.config,`integrations.${integration.id}.config`);
+
   const knownElementIds = new Set(elementIds);
   const knownComponentIds = new Set(document.components.map(component => component.id));
   const validateElementRefs=(elements:SiteElement[]):void=>{
