@@ -47,7 +47,7 @@ jobs:
         run: node --check integrations/figma-plugin/code.js
       - name: Changed AI and canonical UI lint
         working-directory: frontend
-        run: npx --no-install eslint src/features/ai/AiSiteAssistant.tsx src/features/ai/DesignAssistant.tsx src/features/ai/DesignProposalPreview.tsx src/features/editor-access/document-save-coordinator.ts src/features/site-document/client.ts src/features/site-document/types.ts src/features/site-document/SiteDocumentProvider.tsx src/features/editor-access/EditorRoute.tsx src/pages/dashboard/SiteDocumentControlCenter.tsx src/pages/dashboard/CanonicalCmsManager.tsx src/pages/dashboard/CanonicalDesignSystemManager.tsx
+        run: npx --no-install eslint src/features/ai/AiSiteAssistant.tsx src/features/ai/DesignAssistant.tsx src/features/ai/DesignProposalPreview.tsx src/features/editor-access/document-save-coordinator.ts src/features/site-document/client.ts src/features/site-document/types.ts src/features/site-document/SiteDocumentProvider.tsx src/features/editor-access/EditorRoute.tsx src/pages/dashboard/SiteDocumentControlCenter.tsx src/pages/dashboard/CanonicalCmsManager.tsx src/pages/dashboard/CanonicalDesignSystemManager.tsx src/pages/dashboard/CanonicalExperienceManager.tsx
       - name: Design importer, provider boundaries and durable execution
         working-directory: backend
         run: node --test dist/tests/ai-design.test.js dist/tests/ai-design-integration.test.js
