@@ -3,6 +3,8 @@ import { AppError } from "../../utils/app-error.js";
 import type { WorkspaceTransaction } from "../workspaces/access.js";
 import { legacyWebsiteToSiteDocument, siteDocumentToLegacy, type LegacyCmsType } from "../../domain/site-document-legacy.js";
 import { validateSiteDocument, type SiteDocument } from "../../domain/site-document.js";
+import { diffVisualSiteDocuments } from "../../domain/site-document-diff.js";
+import { canonicalDocumentJson } from "./document-policy.js";
 
 type WebsiteLike = {
   id: string; name: string; slug: string; editorData: unknown; documentVersion: number;
@@ -109,20 +111,33 @@ export async function syncSiteDocumentAfterLegacySave(tx: WorkspaceTransaction, 
   const current = validateSiteDocument(state.document);
   const converted = await siteDocumentFromLegacy(tx, website);
   const document = mergeLegacyVisualState(current, converted);
+  const commands:Array<{type:string;[key:string]:unknown}>=[...diffVisualSiteDocuments(current,document)];
+  const extensionKeys=new Set([...Object.keys(current.extensions),...Object.keys(document.extensions)]);
+  for(const key of [...extensionKeys].sort()){
+    if(canonicalDocumentJson(current.extensions[key]??null)!==canonicalDocumentJson(document.extensions[key]??null)){
+      commands.push({type:"extension.set",key,value:document.extensions[key]??null});
+    }
+  }
   await tx.siteDocumentState.update({ where: { websiteId: website.id }, data: {
     schemaVersion: document.schemaVersion, revision: website.documentVersion,
     document: document as Prisma.InputJsonValue, updatedBy: actorId,
   }});
   await tx.siteDocumentRevision.upsert({
     where: { websiteId_revision: { websiteId: website.id, revision: website.documentVersion } },
-    update: { document: document as Prisma.InputJsonValue, schemaVersion: document.schemaVersion, commands: [{ type: "legacy.sync" }] as Prisma.InputJsonValue, source: "LEGACY_SAVE", actorId },
+    update: { document: document as Prisma.InputJsonValue, schemaVersion: document.schemaVersion, commands: commands as unknown as Prisma.InputJsonValue, source: "LEGACY_SAVE", actorId },
     create: {
       websiteId: website.id, organizationId: website.organizationId, workspaceId: website.workspaceId,
       revision: website.documentVersion, schemaVersion: document.schemaVersion,
-      document: document as Prisma.InputJsonValue, commands: [{ type: "legacy.sync" }] as Prisma.InputJsonValue,
+      document: document as Prisma.InputJsonValue, commands: commands as unknown as Prisma.InputJsonValue,
       source: "LEGACY_SAVE", actorId,
     },
   });
+  await tx.siteDocumentCommand.deleteMany({ where: { websiteId: website.id, revision: website.documentVersion } });
+  if(commands.length) await tx.siteDocumentCommand.createMany({ data: commands.map((command,sequence)=>({
+    websiteId:website.id,organizationId:website.organizationId!,workspaceId:website.workspaceId,
+    revision:website.documentVersion,sequence,actorId,source:"LEGACY_SAVE",
+    commandType:String(command.type).slice(0,100),payload:command as unknown as Prisma.InputJsonValue,
+  }))});
   await syncCmsProjection(tx, website, document, actorId);
 }
 
