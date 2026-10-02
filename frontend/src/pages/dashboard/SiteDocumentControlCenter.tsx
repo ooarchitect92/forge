@@ -37,7 +37,7 @@ export default function SiteDocumentControlCenter() {
   },[client]);
 
   useEffect(() => {
-    const controller=new AbortController(); setLoading(true);
+    const controller=new AbortController();
     Promise.all([client.get(controller.signal),client.revisions(),client.metrics().catch(()=>null),client.figmaConnectionStatus().catch(()=>null),client.figmaWebhooks().catch(()=>null),client.figmaWebhookEvents().catch(()=>null)])
       .then(([document,revs,metricResult,figmaStatus,webhooks,events])=>{ if(!controller.signal.aborted){setModel(document);setRevisions(revs);if(metricResult)setMetrics(metricResult.metrics);if(figmaStatus)setFigmaConnected(figmaStatus.connected);if(webhooks)setFigmaSubscriptions(webhooks.subscriptions);if(events)setFigmaEvents(events.events);} })
       .catch(failure=>{if(!controller.signal.aborted)setError(errorMessage(failure));})
