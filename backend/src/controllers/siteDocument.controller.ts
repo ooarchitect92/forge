@@ -78,6 +78,7 @@ export async function restoreSiteDocumentRevisionHandler(req: Request, res: Resp
       targetRevision: int(req.params.revision, "revision"),
       expectedRevision: int(req.body?.expectedRevision, "expectedRevision"),
       key: key(req),
+      conflictPolicy: req.body?.conflictPolicy === "prefer-figma" ? "prefer-figma" : "abort",
     });
     res.json({ success: true, ...result });
   } catch (error) { next(error); }
