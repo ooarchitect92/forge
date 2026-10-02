@@ -101,10 +101,10 @@ export async function previewSiteDocumentCommands(websiteId: string, actorId: st
       await enforceLegacyDocumentPolicy(tx, scope.website, actorId, proposed, scope.can);
       return { websiteId, baseRevision: currentRow.revision, schemaVersion: proposed.schemaVersion, commands, proposed };
     });
-    void recordSiteDocumentMetric({websiteId,actorId,operation:"COMMAND_PREVIEW",source:"USER",durationMs:Date.now()-started,commandCount:commands.length,status:"SUCCESS"});
+    await recordSiteDocumentMetric({websiteId,actorId,operation:"COMMAND_PREVIEW",source:"USER",durationMs:Date.now()-started,commandCount:commands.length,status:"SUCCESS"});
     return result;
   } catch (error) {
-    void recordSiteDocumentMetric({websiteId,actorId,operation:"COMMAND_PREVIEW",source:"USER",durationMs:Date.now()-started,commandCount:commands.length,status:"ERROR",errorCode:(error as {code?:string})?.code??"UNKNOWN"});
+    await recordSiteDocumentMetric({websiteId,actorId,operation:"COMMAND_PREVIEW",source:"USER",durationMs:Date.now()-started,commandCount:commands.length,status:"ERROR",errorCode:(error as {code?:string})?.code??"UNKNOWN"});
     throw error;
   }
 }
@@ -161,13 +161,13 @@ export async function applySiteDocumentCommands(input: {
       };
     },
   });
-    void recordSiteDocumentMetric({
+    await recordSiteDocumentMetric({
       websiteId:input.websiteId,actorId:input.actorId,operation:"COMMAND_APPLY",source,
       durationMs:Date.now()-started,commandCount:commands.length,status:"SUCCESS",idempotencyKey:input.key,
     });
     return result;
   } catch (error) {
-    void recordSiteDocumentMetric({
+    await recordSiteDocumentMetric({
       websiteId:input.websiteId,actorId:input.actorId,operation:"COMMAND_APPLY",source,
       durationMs:Date.now()-started,commandCount:commands.length,status:"ERROR",
       errorCode:(error as {code?:string})?.code??"UNKNOWN",idempotencyKey:input.key,
