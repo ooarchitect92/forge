@@ -19,6 +19,8 @@ function findElement(elements:SiteElement[],id:string):SiteElement|undefined{
 function localValue(document:SiteDocument,mapping:Pick<FigmaSyncMapping,"kind"|"localId">):unknown{
   if(mapping.kind==="PAGE") return document.pages.find(page=>page.id===mapping.localId)??null;
   if(mapping.kind==="TOKEN") return document.tokens.find(token=>token.id===mapping.localId)??null;
+  if(mapping.kind==="STYLE") return document.styles.find(rule=>rule.id===mapping.localId)??null;
+  if(mapping.kind==="COMPONENT"||mapping.kind==="COMPONENT_VARIANT") return document.components.find(component=>component.id===mapping.localId)??null;
   if(mapping.kind==="NODE"){
     for(const page of document.pages){const found=findElement(page.elements,mapping.localId);if(found)return found;}
     for(const component of document.components){const found=findElement([component.root],mapping.localId);if(found)return found;}
