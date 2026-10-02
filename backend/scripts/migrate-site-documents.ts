@@ -14,18 +14,32 @@ type Candidate = {
 };
 
 async function candidates():Promise<Candidate[]> {
-  return prisma.website.findMany({
-    where:{
-      organizationId:{not:null},
-      workspaceId:{not:null},
-      siteDocumentState:null,
-    },
-    orderBy:{createdAt:"asc"},
-    take:limit,
-    select:{
-      id:true,name:true,slug:true,editorData:true,documentVersion:true,organizationId:true,workspaceId:true,
-    },
-  });
+  const result:Candidate[]=[];
+  let cursor:string|undefined;
+  while(result.length<limit){
+    const rows=await prisma.website.findMany({
+      where:{organizationId:{not:null},workspaceId:{not:null}},
+      orderBy:{id:"asc"},
+      take:Math.min(250,Math.max(1,limit-result.length)),
+      ...(cursor?{cursor:{id:cursor},skip:1}:{}),
+      select:{
+        id:true,name:true,slug:true,editorData:true,documentVersion:true,organizationId:true,workspaceId:true,
+      },
+    });
+    if(!rows.length)break;
+    cursor=rows.at(-1)!.id;
+    for(const row of rows){
+      if(!row.organizationId||!row.workspaceId)continue;
+      const exists=await prisma.$transaction(async tx=>{
+        await tx.$queryRaw`SELECT set_config('app.tenant_id', ${row.organizationId}, true)`;
+        return !!await tx.siteDocumentState.findUnique({where:{websiteId:row.id},select:{websiteId:true}});
+      });
+      if(!exists)result.push(row);
+      if(result.length>=limit)break;
+    }
+    if(rows.length<Math.min(250,Math.max(1,limit-result.length)))break;
+  }
+  return result;
 }
 
 async function main(){
