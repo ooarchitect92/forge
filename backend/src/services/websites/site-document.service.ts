@@ -13,6 +13,7 @@ import {
   syncCmsProjection, syncSiteDocumentAfterLegacySave,
 } from "./site-document-storage.js";
 import { recordSiteDocumentMetric } from "./site-document-metrics.js";
+import { notifyWebsiteDocumentRevision } from "../collaboration/presence.service.js";
 
 export type SiteDocumentSource = "USER" | "AI" | "FIGMA" | "STITCH" | "RESTORE" | "MIGRATION";
 
@@ -74,7 +75,7 @@ export async function getSiteDocument(websiteId: string, actorId: string) {
 }
 
 export async function initializeSiteDocument(websiteId: string, actorId: string, key: string) {
-  return workspaceCommand({
+  const result = await workspaceCommand({
     actorId, operation: "SITE_DOCUMENT_INITIALIZED", key, payload: { websiteId },
     authorize: async tx => authorizeWebsiteDocumentWrite(tx, websiteId, actorId),
     execute: async (tx, { website }) => {
@@ -82,6 +83,8 @@ export async function initializeSiteDocument(websiteId: string, actorId: string,
       return { resourceId: websiteId, websiteId, revision: state.revision, schemaVersion: state.document.schemaVersion, persisted: true, document: state.document };
     },
   });
+  notifyWebsiteDocumentRevision(websiteId,{revision:result.revision,source:"MIGRATION",actorId});
+  return result;
 }
 
 export async function previewSiteDocumentCommands(websiteId: string, actorId: string, commandsInput: unknown) {
@@ -165,6 +168,7 @@ export async function applySiteDocumentCommands(input: {
       websiteId:input.websiteId,actorId:input.actorId,operation:"COMMAND_APPLY",source,
       durationMs:Date.now()-started,commandCount:commands.length,status:"SUCCESS",idempotencyKey:input.key,
     });
+    notifyWebsiteDocumentRevision(input.websiteId,{revision:result.revision,source,actorId:input.actorId});
     return result;
   } catch (error) {
     await recordSiteDocumentMetric({
@@ -204,7 +208,7 @@ export async function getSiteDocumentRevision(websiteId: string, revisionInput: 
 export async function restoreSiteDocumentRevision(input: { websiteId: string; actorId: string; targetRevision: number; expectedRevision: number; key: string }) {
   const targetRevision = expectedRevision(input.targetRevision);
   const baseRevision = expectedRevision(input.expectedRevision);
-  return workspaceCommand({
+  const result = await workspaceCommand({
     actorId: input.actorId, operation: "SITE_DOCUMENT_RESTORED", key: input.key,
     payload: { websiteId: input.websiteId, targetRevision, expectedRevision: baseRevision },
     authorize: async tx => {
@@ -239,6 +243,8 @@ export async function restoreSiteDocumentRevision(input: { websiteId: string; ac
       return { resourceId: input.websiteId, websiteId: input.websiteId, revision: saved.documentVersion, documentVersion: saved.documentVersion, restoredFrom: targetRevision, updatedAt: saved.updatedAt.toISOString() };
     },
   });
+  notifyWebsiteDocumentRevision(input.websiteId,{revision:result.revision,source:"RESTORE",actorId:input.actorId});
+  return result;
 }
 
 export async function getCmsV2Snapshot(websiteId: string, actorId: string) {
