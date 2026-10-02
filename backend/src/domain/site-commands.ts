@@ -53,6 +53,7 @@ export const siteCommandSchema = z.discriminatedUnion("type", [
 
   z.object({ type: z.literal("locale.add"), locale: localeOverlaySchema }).strict(),
   z.object({ type: z.literal("locale.update"), localeId: id, values: jsonObjectSchema }).strict(),
+  z.object({ type: z.literal("locale.translate"), localeId: id, values: jsonObjectSchema }).strict(),
   z.object({ type: z.literal("locale.delete"), localeId: id }).strict(),
   z.object({ type: z.literal("experiment.createVariant"), experiment: experimentSchema }).strict(),
   z.object({ type: z.literal("experiment.update"), experimentId: id, patch: jsonObjectSchema }).strict(),
@@ -261,7 +262,7 @@ export function applySiteCommands(current: SiteDocument, commandsInput: unknown)
     if (command.type === "form.delete") { deleteById(next.forms,command.formId,"Form"); continue; }
 
     if (command.type === "locale.add") { updateById(next.locales, command.locale); continue; }
-    if (command.type === "locale.update") {
+    if (command.type === "locale.update" || command.type === "locale.translate") {
       const locale = next.locales.find(value => value.id === command.localeId);
       if (!locale) throw new AppError("Locale overlay was not found", 422, "SITE_COMMAND_TARGET_NOT_FOUND");
       locale.values = { ...locale.values, ...clone(command.values) }; continue;
