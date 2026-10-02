@@ -31,11 +31,10 @@ export async function recordSiteDocumentMetric(input:SiteDocumentMetricInput){
       const website=await getScopedWebsiteInTransaction(tx,input.websiteId,input.actorId);
       if(!website.organizationId) return null;
       await tx.$queryRaw`SELECT set_config('app.tenant_id', ${website.organizationId}, true)`;
-      return tx.siteDocumentMetric.upsert({
-        where:{websiteId_operation_idempotencyKey:{websiteId:input.websiteId,operation,idempotencyKey}},
-        update:{durationMs,commandCount,status:input.status,errorCode:input.errorCode?.slice(0,100)||null,source,actorId:input.actorId,workspaceId:website.workspaceId},
-        create:{websiteId:input.websiteId,organizationId:website.organizationId,workspaceId:website.workspaceId,actorId:input.actorId,operation,source,durationMs,commandCount,status:input.status,errorCode:input.errorCode?.slice(0,100)||null,idempotencyKey},
-      });
+      return tx.siteDocumentMetric.create({data:{
+        websiteId:input.websiteId,organizationId:website.organizationId,workspaceId:website.workspaceId,actorId:input.actorId,
+        operation,source,durationMs,commandCount,status:input.status,errorCode:input.errorCode?.slice(0,100)||null,idempotencyKey,
+      }});
     });
   }catch(error){
     // Metrics must never turn a successfully committed document command into a failed API call.
