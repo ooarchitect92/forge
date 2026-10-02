@@ -1253,6 +1253,27 @@ model SiteDocumentCommand {
   @@map("site_document_commands")
 }
 
+model SiteDocumentMetric {
+  id             String   @id @default(uuid()) @db.Uuid
+  websiteId      String   @db.Uuid
+  organizationId String   @db.Uuid
+  workspaceId    String?  @db.Uuid
+  actorId        String?  @db.Uuid
+  operation      String   @db.VarChar(60)
+  source         String   @default("USER") @db.VarChar(30)
+  durationMs     Int
+  commandCount   Int      @default(0)
+  status         String   @db.VarChar(20)
+  errorCode      String?  @db.VarChar(100)
+  idempotencyKey String?  @db.VarChar(128)
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([websiteId, operation, idempotencyKey])
+  @@index([organizationId, websiteId, createdAt])
+  @@index([websiteId, status, createdAt])
+  @@map("site_document_metrics")
+}
+
 model CmsCollectionV2 {
   id             String   @id @db.VarChar(200)
   websiteId      String   @db.Uuid
