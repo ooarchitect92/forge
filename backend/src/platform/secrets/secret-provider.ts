@@ -102,3 +102,14 @@ export async function storeSecretJson(secretId:string,value:Record<string,unknow
   }
   return `secretsmanager:${id}`;
 }
+
+
+export async function storeSecretReference(reference:string,value:Record<string,unknown>):Promise<void>{
+  const ref=String(reference||"").trim();
+  if(!ref.startsWith("secretsmanager:")) throw new AppError("Connector secret is not writable through this provider",503,"SECRET_REFERENCE_NOT_WRITABLE");
+  const spec=ref.slice("secretsmanager:".length);
+  const hashIndex=spec.lastIndexOf("#");
+  if(hashIndex>=0) throw new AppError("Cannot overwrite a field-scoped secret reference",503,"SECRET_REFERENCE_NOT_WRITABLE");
+  const secretId=spec.trim();
+  await storeSecretJson(secretId,value);
+}
