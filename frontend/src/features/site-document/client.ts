@@ -60,5 +60,15 @@ export function createSiteDocumentClient(apiUrl:string,websiteId:string){
         await fetch(`${base}/figma/sync`,{method:"POST",credentials:"include",headers:headers(key),body:JSON.stringify({fileKey,expectedRevision})})
       );
     },
+    async figmaTokenPushPreview(fileKey:string){
+      return response<{success:boolean;baseRevision:number;fileKey:string;createCount:number;updateCount:number;skipCount:number;warnings:string[];actions:Array<{tokenId:string;tokenName:string;action:"CREATE"|"UPDATE"|"SKIP";reason?:string}>}>(
+        await fetch(`${base}/figma/tokens/push/preview`,{method:"POST",credentials:"include",headers:headers(),body:JSON.stringify({fileKey})})
+      );
+    },
+    async figmaTokenPush(fileKey:string,expectedRevision:number){
+      return response<{success:boolean;baseRevision:number;fileKey:string;createCount:number;updateCount:number;skipCount:number;warnings:string[];mappingCount:number;noChanges:boolean}>(
+        await fetch(`${base}/figma/tokens/push`,{method:"POST",credentials:"include",headers:headers(),body:JSON.stringify({fileKey,expectedRevision})})
+      );
+    },
   };
 }
