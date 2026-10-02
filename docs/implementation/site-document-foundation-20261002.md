@@ -84,6 +84,9 @@ Supported commands now include:
 - `locale.add/update/delete`
 - `experiment.createVariant/update/delete`
 - `integration.set/delete`
+- `interaction.set/delete`
+- `form.set/delete`
+- `component.update`, `component.variant.set/delete`
 - `site.setMetadata`
 - `extension.set`
 
@@ -152,7 +155,9 @@ All routes are under `/api/websites/:id/site-document`.
 | POST | `/revisions/:revision/restore` | restore by creating a new revision |
 | GET | `/cms` | canonical CMS snapshot |
 | POST | `/figma/preview` | import Figma file as a reviewable command batch |
-| POST | `/figma/sync` | apply reviewed Figma commands |
+| POST | `/figma/sync` | apply reviewed Figma import commands |
+| POST | `/figma/tokens/push/preview` | preview Forge → Figma variable changes |
+| POST | `/figma/tokens/push` | push reviewed canonical design tokens to Figma Variables |
 
 Mutations require `Idempotency-Key` and command commits require an expected revision.
 
@@ -211,7 +216,7 @@ Approved AI changesets with typed commands are applied from the server-stored pr
 
 ## Figma integration
 
-`backend/src/integrations/figma/site-document-figma.ts` and `figma-sync.service.ts` implement a governed one-way import foundation:
+`backend/src/integrations/figma/site-document-figma.ts`, `site-document-figma-push.ts` and `figma-sync.service.ts` implement governed import plus two-way design-token synchronization:
 
 - organization/website scoped connector credential
 - no raw access token accepted from the browser
@@ -225,12 +230,16 @@ Approved AI changesets with typed commands are applied from the server-stored pr
 - mapping persistence for future reconciliation
 - preview before apply
 - typed commands for the final mutation
+- reviewed Forge → Figma Variables push for compatible color/number/string/boolean tokens
+- stable token mapping so subsequent pushes update the mapped Figma variable
+- reuse of an existing `Forge Design Tokens` collection when possible
+- 4 MiB outbound request bound and safe skipping of unsupported/unsafe type changes
 
-The backend bounds request time and response size and treats Variables access as optional when layout import can continue.
+The backend bounds request time and response size and treats Variables access as optional when layout import can continue. Figma Variables write access still depends on the connected account plan, seat, edit permission and OAuth scope.
 
 ### Deliberate boundary
 
-Structural Forge -> Figma node mutation is **not claimed as production complete in this branch**. A safe two-way implementation needs an explicitly supported write surface (for example a governed Figma plugin/approved Variables write API) and conflict semantics. The current code does not fabricate a write API or silently overwrite a Figma file.
+Structural Forge -> Figma canvas-node mutation is **not claimed as production complete in this branch**. The official Variables REST surface is used for two-way token synchronization, but arbitrary canvas structure is not overwritten through an invented REST endpoint. Structural outbound sync requires a governed Figma Plugin/API write surface plus explicit conflict semantics.
 
 ## Frontend
 
@@ -239,10 +248,12 @@ New files:
 - `frontend/src/features/site-document/types.ts`
 - `frontend/src/features/site-document/client.ts`
 - `frontend/src/pages/dashboard/SiteDocumentControlCenter.tsx`
+- `frontend/src/pages/dashboard/CanonicalCmsManager.tsx`
 
 Route:
 
 - `/dashboard/site-document/:websiteId`
+- `/dashboard/site-document/:websiteId/cms`
 
 The control center shows:
 
@@ -253,6 +264,8 @@ The control center shows:
 - Figma preview with command count
 - explicit apply after review
 - warnings when Figma Variables are unavailable
+- Forge → Figma token push preview/apply
+- a command-native CMS 2.0 manager for collections, fields, items and element bindings
 
 The existing Custom Post Types screen links into the canonical control center.
 
@@ -318,10 +331,10 @@ Do not drop the new tables during an incident rollback; they contain revision/au
 
 These are intentionally explicit rather than represented as completed:
 
-1. Forge -> Figma structural two-way node/component writes and conflict UI.
+1. Forge -> Figma structural canvas-node/component writes and conflict UI. Design-token Variables sync is now two-way; arbitrary canvas mutation is not fabricated.
 2. Live-provider acceptance against real customer Figma/Stitch accounts; automated tests use fixtures/mocks.
 3. Full migration of every editor gesture from legacy whole-document saves to typed commands. Legacy saves are currently reconciled into SiteDocument safely.
-4. Full deprecation/removal of the old CustomPostType UI/API. Existing data imports into CMS 2.0; the legacy API remains for backward compatibility.
+4. Full deprecation/removal of the old CustomPostType UI/API. A command-native CMS 2.0 manager now exists, while the legacy API remains for backward compatibility.
 5. Large-site performance qualification at production-scale page/CMS volumes.
 6. Operational dashboards/SLO alerts specifically for SiteDocument command latency and reconciliation failures.
 
