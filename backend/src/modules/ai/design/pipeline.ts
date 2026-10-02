@@ -17,6 +17,7 @@ import { diffVisualSiteDocuments } from "../../../domain/site-document-diff.js";
 import { legacyWebsiteToSiteDocument } from "../../../domain/site-document-legacy.js";
 import { validateSiteDocument } from "../../../domain/site-document.js";
 import { ensureSiteDocumentState } from "../../../services/websites/site-document-storage.js";
+import { settleAiCredits } from "../../../services/ai/credit-wallet.js";
 
 type Ports = { planner: DesignPlanner; designer: DesignProvider; artifacts: ArtifactStore; converter: DesignConverter };
 export async function runDesignExecution(executionId: string, job: { id: string; lockToken: string }, supplied?: Ports) {
@@ -145,6 +146,7 @@ export async function runDesignExecution(executionId: string, job: { id: string;
         summary: { provider: "stitch-claude", pageNames: pages.map(page => page.name), pageCount: pages.length, setupRequired, conversionVersion: 2, commandCount: proposedCommands.length, commandHash: createHash("sha256").update(JSON.stringify(proposedCommands)).digest("hex"), proposalHash: createHash("sha256").update(JSON.stringify(document)).digest("hex") } as Prisma.InputJsonValue,
       } });
       await tx.aiExecution.update({ where: { id: executionId }, data: { status: "COMPLETED", stage: "PENDING_REVIEW", completedAt: new Date(), outputSummary: { pageCount: pages.length } } });
+      await settleAiCredits(tx, { organizationId: execution.organizationId!, actorId: execution.actorId, executionId, action: "consume", reason: "design-proposal-completed" });
       await tx.auditLog.create({ data: { userId: execution.actorId, action: "AI_DESIGN_READY", targetResource: `ai-execution:${executionId}`, details: { pageCount: pages.length } } });
       await tx.$executeRaw`INSERT INTO workspace_outbox ("organizationId","actorId",operation,"resourceId") VALUES (${execution.organizationId}::uuid,${execution.actorId}::uuid,'AI_DESIGN_READY',${execution.websiteId}::uuid)`;
     });
@@ -157,6 +159,11 @@ export async function runDesignExecution(executionId: string, job: { id: string;
           const changed = await tx.aiExecution.updateMany({ where: { id: executionId, status: { in: ["QUEUED", "RUNNING"] } }, data: { status: code === "AI_EXTERNAL_OUTCOME_UNKNOWN" ? "RECONCILIATION_REQUIRED" : "FAILED", errorCode: code, completedAt: new Date() } });
           if (!changed.count) return;
           await tx.aiExecutionStage.updateMany({ where: { executionId, status: "RUNNING" }, data: { status: code === "AI_EXTERNAL_OUTCOME_UNKNOWN" ? "UNKNOWN" : "FAILED", completedAt: new Date() } });
+          await settleAiCredits(tx, {
+            organizationId: execution.organizationId!, actorId: execution.actorId, executionId,
+            action: code === "AI_EXTERNAL_OUTCOME_UNKNOWN" ? "consume" : "release",
+            reason: code === "AI_EXTERNAL_OUTCOME_UNKNOWN" ? "provider-outcome-unknown" : "design-execution-failed",
+          });
           await tx.auditLog.create({ data: { userId: execution.actorId, action: "AI_DESIGN_FAILED", targetResource: `ai-execution:${executionId}`, details: { code } } });
           await tx.$executeRaw`INSERT INTO workspace_outbox ("organizationId","actorId",operation,"resourceId") VALUES (${execution.organizationId}::uuid,${execution.actorId}::uuid,'AI_DESIGN_FAILED',${execution.websiteId}::uuid)`;
         }, false);
