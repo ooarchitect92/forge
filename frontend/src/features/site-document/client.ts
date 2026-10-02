@@ -124,5 +124,12 @@ export function createSiteDocumentClient(apiUrl:string,websiteId:string){
         await fetch(`${base}/figma/tokens/push`,{method:"POST",credentials:"include",headers:headers(),body:JSON.stringify({fileKey,expectedRevision})})
       );
     },
+    async figmaPluginExport(pageIds?:string[]){
+      const res=await fetch(`${base}/figma/plugin/export`,{
+        method:"POST",credentials:"include",headers:headers(),body:JSON.stringify(pageIds?.length?{pageIds}:{})
+      });
+      if(!res.ok){await response<unknown>(res);throw new Error("Figma plugin export failed");}
+      return res.text();
+    },
   };
 }
