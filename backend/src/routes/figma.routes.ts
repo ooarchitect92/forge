@@ -6,8 +6,14 @@ import { startFigmaOAuth, completeFigmaOAuth } from "../integrations/figma/figma
 import { getScopedWebsite } from "../services/websites/scoped-access.js";
 import { canUserAccessResource } from "../services/permission.service.js";
 import { getActiveConnectorCredential } from "../platform/integrations/connector-credentials.js";
+import { createFigmaFileWebhook, deleteFigmaFileWebhook, dismissFigmaWebhookEvent, listFigmaFileWebhooks, listFigmaWebhookEvents, receiveFigmaWebhook } from "../integrations/figma/figma-webhook.service.js";
 
 const router=Router();
+
+router.post("/webhooks/:organizationId/:subscriptionId",requireRuntimeCapability("figma-sync",{allowDegraded:true}),async(req,res,next)=>{
+  try{res.json(await receiveFigmaWebhook({organizationId:String(req.params.organizationId),subscriptionId:String(req.params.subscriptionId),body:req.body}));}
+  catch(error){next(error);}
+});
 
 function frontendRedirect(websiteId:string,status:"connected"|"error",code?:string){
   const raw=String(process.env.FRONTEND_URL||"").trim();
@@ -50,6 +56,27 @@ router.get("/oauth/callback",requireRuntimeCapability("figma-sync"),async(req,re
     }
     next(error);
   }
+});
+
+router.post("/websites/:websiteId/webhooks",requireRuntimeCapability("figma-sync"),async(req,res,next)=>{
+  try{res.status(201).json({success:true,subscription:await createFigmaFileWebhook({websiteId:String(req.params.websiteId),actorId:res.locals.user.id,fileKey:req.body?.fileKey})});}
+  catch(error){next(error);}
+});
+router.get("/websites/:websiteId/webhooks",requireRuntimeCapability("figma-sync",{allowDegraded:true}),async(req,res,next)=>{
+  try{res.json({success:true,subscriptions:await listFigmaFileWebhooks(String(req.params.websiteId),res.locals.user.id)});}
+  catch(error){next(error);}
+});
+router.delete("/websites/:websiteId/webhooks/:subscriptionId",requireRuntimeCapability("figma-sync"),async(req,res,next)=>{
+  try{res.json({success:true,subscription:await deleteFigmaFileWebhook({websiteId:String(req.params.websiteId),actorId:res.locals.user.id,subscriptionId:String(req.params.subscriptionId)})});}
+  catch(error){next(error);}
+});
+router.get("/websites/:websiteId/webhook-events",requireRuntimeCapability("figma-sync",{allowDegraded:true}),async(req,res,next)=>{
+  try{res.json({success:true,events:await listFigmaWebhookEvents(String(req.params.websiteId),res.locals.user.id)});}
+  catch(error){next(error);}
+});
+router.post("/websites/:websiteId/webhook-events/:eventId/dismiss",requireRuntimeCapability("figma-sync",{allowDegraded:true}),async(req,res,next)=>{
+  try{res.json({success:true,event:await dismissFigmaWebhookEvent({websiteId:String(req.params.websiteId),actorId:res.locals.user.id,eventId:String(req.params.eventId)})});}
+  catch(error){next(error);}
 });
 
 router.get("/websites/:websiteId/status",requireRuntimeCapability("figma-sync",{allowDegraded:true}),async(req,res,next)=>{
