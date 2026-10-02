@@ -286,3 +286,14 @@ test("locale.translate merges reviewed translation overlays",()=>{
   ]);
   assert.deepEqual(translated.locales[0]?.values,{headline:"Bonjour",cta:"Commencer"});
 });
+
+
+test("Figma import rejects pathological tree depth before canonical conversion",()=>{
+  let node:any={id:"leaf",type:"FRAME",children:[]};
+  for(let depth=0;depth<55;depth++) node={id:`deep-${depth}`,type:"FRAME",children:[node]};
+  assert.throws(()=>figmaToSiteCommands({
+    fileKey:"DeepTree123",
+    current:document(),
+    file:{name:"Deep",version:"1",document:{id:"root",type:"DOCUMENT",children:[node]}},
+  }),/supported complexity/);
+});
