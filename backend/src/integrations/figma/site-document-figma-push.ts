@@ -27,7 +27,7 @@ export type FigmaLocalVariablesSnapshot = {
 };
 
 function safeName(name: string): string {
-  const value = name.trim().replace(/[\u0000-\u001f]/g, " ").slice(0, 255);
+  const value = name.trim().replace(/[\u0000-\u001f]/g, " ").replace(/[.{}]/g, "-").replace(/\s+/g, " ").slice(0, 255);
   if (!value) throw new AppError("A Figma variable name is required", 422, "FIGMA_TOKEN_INVALID");
   return value;
 }
@@ -140,7 +140,13 @@ export function buildFigmaTokenPushPlan(input: {
       warnings.push(`Skipped "${token.name}" because its Figma collection has no writable mode.`);
       continue;
     }
-    variableUpdates.push({ action: "UPDATE", id: externalId, name: safeName(token.name) });
+    const currentValue=variable.valuesByMode?.[modeId];
+    const targetName=safeName(token.name);
+    if(variable.name===targetName&&JSON.stringify(currentValue)===JSON.stringify(converted.value)){
+      actions.push({ tokenId: token.id, tokenName: token.name, action: "SKIP", externalId, resolvedType: converted.resolvedType, reason: "Already synchronized" });
+      continue;
+    }
+    variableUpdates.push({ action: "UPDATE", id: externalId, name: targetName });
     variableModeValues.push({ variableId: externalId, modeId, value: converted.value });
     actions.push({ tokenId: token.id, tokenName: token.name, action: "UPDATE", externalId, resolvedType: converted.resolvedType });
   }
@@ -149,9 +155,10 @@ export function buildFigmaTokenPushPlan(input: {
   const variableCollections: Array<Record<string, unknown>> = [];
   const variableCreates: Array<Record<string, unknown>> = [];
   if (variablesToCreate.length) {
-    const collectionId = "forge_collection";
-    const modeId = "forge_mode";
-    variableCollections.push({ action: "CREATE", id: collectionId, name: "Forge Design Tokens", initialModeId: modeId });
+    const existingForgeCollection=Object.values(collections).find(collection=>!collection.remote&&collection.name==="Forge Design Tokens"&&defaultMode(collection));
+    const collectionId = existingForgeCollection?.id ?? "forge_collection";
+    const modeId = defaultMode(existingForgeCollection) ?? "forge_mode";
+    if(!existingForgeCollection) variableCollections.push({ action: "CREATE", id: collectionId, name: "Forge Design Tokens", initialModeId: modeId });
     variablesToCreate.forEach((entry, index) => {
       const temporaryId = `forge_token_${index + 1}`;
       variableCreates.push({
