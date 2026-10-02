@@ -114,7 +114,7 @@ export function parseSiteCommands(input: unknown): SiteCommand[] {
   const parsed = z.array(siteCommandSchema).min(1).max(500).safeParse(input);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
-    throw new AppError(`Invalid SiteDocument command batch${issue?.path?.length ? ` at ${issue.path.join(".")}` : ""}`, 422, "SITE_COMMAND_INVALID");
+    throw new AppError(`Invalid SiteDocument command batch${issue?.path?.length ? ` at ${issue.path.join(".")}` : ""}${issue?.message ? `: ${issue.message}` : ""}`, 422, "SITE_COMMAND_INVALID");
   }
   return parsed.data;
 }
