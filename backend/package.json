@@ -19,7 +19,8 @@
     "db:migrate": "prisma migrate deploy",
     "worker:platform": "node dist/workers/platform-worker.js",
     "worker": "node dist/workers/main.js",
-    "dev:worker": "npm run build && node dist/workers/main.js"
+    "dev:worker": "npm run build && node dist/workers/main.js",
+    "site-document:migrate": "tsx scripts/migrate-site-documents.ts"
   },
   "keywords": [],
   "author": "",
