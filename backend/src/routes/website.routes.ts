@@ -31,6 +31,7 @@ import {
   getSiteDocumentRevisionHandler,
   restoreSiteDocumentRevisionHandler,
   getCmsV2SnapshotHandler,
+  getSiteDocumentMetricsHandler,
   previewFigmaSyncHandler,
   applyFigmaSyncHandler,
   previewFigmaTokenPushHandler,
@@ -239,6 +240,7 @@ router.get("/:id/site-document/revisions", requireRuntimeCapability("site-docume
 router.get("/:id/site-document/revisions/:revision", requireRuntimeCapability("site-document", { allowDegraded: true }), authorizeCapability("VIEW"), getSiteDocumentRevisionHandler);
 router.post("/:id/site-document/revisions/:revision/restore", requireRuntimeCapability("site-document"), authorizeCapability("EDIT"), restoreSiteDocumentRevisionHandler);
 router.get("/:id/site-document/cms", requireRuntimeCapability("cms-v2", { allowDegraded: true }), authorizeCapability("VIEW"), getCmsV2SnapshotHandler);
+router.get("/:id/site-document/metrics", requireRuntimeCapability("site-document", { allowDegraded: true }), authorizeCapability("VIEW"), getSiteDocumentMetricsHandler);
 router.post("/:id/site-document/figma/preview", requireRuntimeCapability("figma-sync", { allowDegraded: true }), authorizeCapability("EDIT_DESIGN"), previewFigmaSyncHandler);
 router.post("/:id/site-document/figma/sync", requireRuntimeCapability("figma-sync"), authorizeCapability("EDIT_DESIGN"), applyFigmaSyncHandler);
 router.post("/:id/site-document/figma/tokens/push/preview", requireRuntimeCapability("figma-sync", { allowDegraded: true }), authorizeCapability("EDIT_DESIGN"), previewFigmaTokenPushHandler);
