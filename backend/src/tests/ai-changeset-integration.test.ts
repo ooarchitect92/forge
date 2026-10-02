@@ -28,7 +28,7 @@ test("AI approval contracts on migrated disposable PostgreSQL", async t => {
   process.env.AI_MODEL_GEMINI = "fixture-gemini";
   const user = (name: string) => prisma.user.create({ data: { fullName: name, email: `${randomUUID()}@example.test`, status: "ACTIVE" } });
   const owner = await user("AI owner"), viewer = await user("AI viewer"), outsider = await user("Other workspace");
-  await prisma.subscriptionPlan.upsert({ where: { slug: "free" }, update: {}, create: { name: "Fixture", slug: "free", price: 0, currency: "INR", billingInterval: "monthly", websiteLimit: 1, features: [] } });
+  await prisma.subscriptionPlan.upsert({ where: { slug: "free" }, update: {}, create: { name: "Fixture", slug: "free", price: 0, currency: "INR", billingInterval: "monthly", websiteLimit: 1, aiCreditLimit: 1000, features: [] } });
   await assignDefaultFreePlan(owner.id);
   const { workspace } = await createTenantWorkspace(owner.id, { name: "AI qualification" }, randomUUID());
   await prisma.organizationMember.createMany({ data: [viewer, outsider].map(actor => ({ organizationId: workspace.organizationId!, userId: actor.id, role: "MEMBER" })) });
