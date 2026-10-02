@@ -5,7 +5,8 @@ import type { SiteCommand, SiteDocumentEnvelope, SiteDocumentRevisionSummary } f
 
 const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
-function countElements(elements: Array<{children?: any[]}>): number {
+type CountableElement={children?:CountableElement[]};
+function countElements(elements: CountableElement[]): number {
   return elements.reduce((total, element) => total + 1 + countElements(Array.isArray(element.children) ? element.children : []), 0);
 }
 function errorMessage(error: unknown): string {
