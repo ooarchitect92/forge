@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { useParams } from "react-router-dom";
 import { EditorSessionBoundary } from "./EditorSessionBoundary";
+import { SiteDocumentProvider } from "../site-document/SiteDocumentProvider";
 
 const WebsiteEditor = lazy(() => import("../../pages/editor/WebsiteEditor"));
 
@@ -12,9 +13,11 @@ export default function EditorRoute() {
   if (!websiteId) return null;
   return (
     <EditorSessionBoundary websiteId={websiteId}>
-      <Suspense fallback={<main className="min-h-screen bg-slate-950 text-slate-300 p-6" aria-busy="true">Loading editor…</main>}>
-        <WebsiteEditor key={websiteId} />
-      </Suspense>
+      <SiteDocumentProvider websiteId={websiteId}>
+        <Suspense fallback={<main className="min-h-screen bg-slate-950 text-slate-300 p-6" aria-busy="true">Loading editor…</main>}>
+          <WebsiteEditor key={websiteId} />
+        </Suspense>
+      </SiteDocumentProvider>
     </EditorSessionBoundary>
   );
 }
