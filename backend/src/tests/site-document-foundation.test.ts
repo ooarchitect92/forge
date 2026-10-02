@@ -306,3 +306,14 @@ test("canonical JSON rejects prototype-polluting keys before command application
   ]),/Reserved JSON key|SITE_COMMAND_INVALID/);
   assert.equal(({} as {polluted?:boolean}).polluted,undefined);
 });
+
+
+test("canonical integrations store public metadata but reject embedded secrets",()=>{
+  const safe=applySiteCommands(document(),[
+    {type:"integration.set",integration:{id:"analytics",provider:"analytics",enabled:true,config:{measurementId:"G-123",credentialId:"cred-1"}}},
+  ]);
+  assert.equal(safe.integrations[0]?.config.measurementId,"G-123");
+  assert.throws(()=>applySiteCommands(document(),[
+    {type:"integration.set",integration:{id:"unsafe",provider:"provider",enabled:true,config:{accessToken:"do-not-store"}}},
+  ]),/secret material|SITE_DOCUMENT_SECRET_FORBIDDEN/);
+});
