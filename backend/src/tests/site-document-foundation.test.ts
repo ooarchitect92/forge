@@ -275,3 +275,14 @@ test("Figma import replaces an existing page occupying the same route",()=>{
   assert.equal(next.pages[0]?.slug,"/");
   assert.match(next.pages[0]?.id??"",/^figma-page-/);
 });
+
+
+test("locale.translate merges reviewed translation overlays",()=>{
+  const withLocale=applySiteCommands(document(),[
+    {type:"locale.add",locale:{id:"fr",locale:"fr",values:{headline:"Bonjour"}}},
+  ]);
+  const translated=applySiteCommands(withLocale,[
+    {type:"locale.translate",localeId:"fr",values:{cta:"Commencer"}},
+  ]);
+  assert.deepEqual(translated.locales[0]?.values,{headline:"Bonjour",cta:"Commencer"});
+});
