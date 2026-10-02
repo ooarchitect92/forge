@@ -21,7 +21,7 @@ test("durable Stitch/Claude proposal lifecycle on PostgreSQL (fixture providers)
   t.after(async () => { for (const key of ["AI_PROMPT_ENCRYPTION_KEY", "STITCH_API_KEY", "ANTHROPIC_API_KEY", "AI_CLAUDE_DESIGN_MODEL", "AI_DESIGN_DAILY_UNITS", "AI_DESIGN_MAX_PAGES"]) { if (env[key] === undefined) delete process.env[key]; else process.env[key] = env[key]; } await prisma.$disconnect(); await pgPool.end(); });
   const owner = await prisma.user.create({ data: { email: `${randomUUID()}@example.test`, fullName: "Design fixture", status: "ACTIVE" } });
   const outsider = await prisma.user.create({ data: { email: `${randomUUID()}@example.test`, fullName: "Other tenant", status: "ACTIVE" } });
-  await prisma.subscriptionPlan.upsert({ where: { slug: "free" }, update: {}, create: { name: "Fixture", slug: "free", price: 0, currency: "INR", billingInterval: "monthly", websiteLimit: 1, features: [] } });
+  await prisma.subscriptionPlan.upsert({ where: { slug: "free" }, update: {}, create: { name: "Fixture", slug: "free", price: 0, currency: "INR", billingInterval: "monthly", websiteLimit: 1, aiCreditLimit: 1000, features: [] } });
   await assignDefaultFreePlan(owner.id);
   const { workspace } = await createTenantWorkspace(owner.id, { name: "Design fixtures" }, randomUUID());
   const websiteId = (await createTenantWorkspaceWebsite(owner.id, workspace.id, "Design fixture", randomUUID())).resourceId;
