@@ -33,6 +33,11 @@ export interface CmsField {
 export interface CmsCollection { id:string; name:string; slug:string; description?:string; fields:CmsField[]; }
 export interface CmsItem { id:string; collectionId:string; title?:string; slug?:string; status:"DRAFT"|"PUBLISHED"|"ARCHIVED"; values:Record<string,JsonValue>; }
 export interface CmsBinding { id:string; elementId:string; property:string; collectionId:string; fieldId:string; }
+export interface SiteInteraction { id:string;elementId?:string;trigger:string;action:string;config:Record<string,JsonValue>; }
+export interface SiteForm { id:string;name:string;fields:Array<Record<string,JsonValue>>;actions:Array<Record<string,JsonValue>>;settings:Record<string,JsonValue>; }
+export interface LocaleOverlay { id:string;locale:string;values:Record<string,JsonValue>; }
+export interface Experiment { id:string;name:string;status:"DRAFT"|"RUNNING"|"PAUSED"|"ENDED";variants:Array<Record<string,JsonValue>>;allocation:Record<string,JsonValue>; }
+export interface SiteIntegration { id:string;provider:string;enabled:boolean;config:Record<string,JsonValue>; }
 
 export interface SiteDocument {
   id:string; schemaVersion:number;
@@ -43,7 +48,7 @@ export interface SiteDocument {
   tokens:DesignToken[];
   assets:Array<{id:string;kind:string;url:string;name?:string;metadata:Record<string,JsonValue>}>;
   cms:{collections:CmsCollection[];items:CmsItem[];bindings:CmsBinding[]};
-  interactions:unknown[];forms:unknown[];locales:unknown[];experiments:unknown[];integrations:unknown[];
+  interactions:SiteInteraction[];forms:SiteForm[];locales:LocaleOverlay[];experiments:Experiment[];integrations:SiteIntegration[];
   extensions:Record<string,JsonValue>;
 }
 export type SiteCommand = { type:string; [key:string]:unknown };
