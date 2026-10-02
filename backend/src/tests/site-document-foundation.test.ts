@@ -199,6 +199,7 @@ test("CMS bindings resolve only the selected item and publish expands template p
 
 test("command processor covers component variants, interactions and forms", () => {
   const value=applySiteCommands(document(),[
+    {type:"element.insert",pageId:"home",element:{id:"hero",type:"section",props:{},styles:{},children:[]}},
     {type:"component.create",component:{id:"card",name:"Card",root:{id:"card-root",type:"container",props:{},styles:{},children:[]},variants:[],slots:[]}},
     {type:"component.variant.set",componentId:"card",variant:{id:"featured",name:"Featured",props:{featured:true},styles:{borderWidth:2}}},
     {type:"interaction.set",interaction:{id:"reveal",elementId:"hero",trigger:"scroll",action:"animate",config:{preset:"fade-up"}}},
