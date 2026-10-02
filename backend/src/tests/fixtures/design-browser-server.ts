@@ -15,7 +15,7 @@ const database = new URL(process.env.DATABASE_URL || "invalid:"), output = proce
 if (process.env.NODE_ENV !== "test" || process.env.FORGE_DISPOSABLE_TEST_DB !== "1" || database.pathname !== "/forge_hardening" || !["localhost", "127.0.0.1"].includes(database.hostname) || !output || !isAbsolute(output)) throw new Error("Requires explicitly opted-in disposable local test database and private fixture path");
 Object.assign(process.env, { STITCH_API_KEY: "fixture-only", ANTHROPIC_API_KEY: "fixture-only", AI_CLAUDE_DESIGN_MODEL: "fixture-only", AI_PROMPT_ENCRYPTION_KEY: randomBytes(32).toString("base64"), AI_DESIGN_DAILY_UNITS: "10000" });
 const user = await prisma.user.create({ data: { fullName: "Design browser fixture", email: `${randomUUID()}@example.test`, status: "ACTIVE", emailVerified: true } });
-await prisma.subscriptionPlan.upsert({ where: { slug: "free" }, update: {}, create: { name: "Fixture", slug: "free", price: 0, websiteLimit: 1, features: [] } });
+await prisma.subscriptionPlan.upsert({ where: { slug: "free" }, update: {}, create: { name: "Fixture", slug: "free", price: 0, websiteLimit: 1, aiCreditLimit: 1000, features: [] } });
 await assignDefaultFreePlan(user.id);
 const { workspace } = await createTenantWorkspace(user.id, { name: "Design browser fixture" }, randomUUID());
 const websiteId = (await createTenantWorkspaceWebsite(user.id, workspace.id, "Design browser fixture", randomUUID())).resourceId;
