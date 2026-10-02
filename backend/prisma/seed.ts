@@ -13,7 +13,7 @@ async function main() {
       billingInterval: "monthly",
       websiteLimit: 1,
       storageLimitMb: 100,
-      aiCreditLimit: 0,
+      aiCreditLimit: 30,
       features: [
         "1 Website",
         "Basic widgets",
