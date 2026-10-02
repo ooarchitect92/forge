@@ -3,6 +3,22 @@ import { AppError } from "../utils/app-error.js";
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 const RESERVED_JSON_KEYS=new Set(["__proto__","prototype","constructor"]);
+export function assertSafeJsonKeys(value:unknown,path="document",seen=new WeakSet<object>()):void{
+  if(value===null||typeof value!=="object")return;
+  if(seen.has(value as object))throw new AppError(`Circular value is not allowed at ${path}`,422,"SITE_DOCUMENT_INVALID");
+  seen.add(value as object);
+  if(Array.isArray(value)){
+    if(value.length>20_000)throw new AppError(`JSON array is too large at ${path}`,422,"SITE_DOCUMENT_INVALID");
+    value.forEach((item,index)=>assertSafeJsonKeys(item,`${path}[${index}]`,seen));
+    return;
+  }
+  const prototype=Object.getPrototypeOf(value);
+  if(prototype!==Object.prototype&&prototype!==null)throw new AppError(`Only plain JSON objects are accepted at ${path}`,422,"SITE_DOCUMENT_INVALID");
+  for(const key of Object.keys(value)){
+    if(RESERVED_JSON_KEYS.has(key))throw new AppError(`Reserved JSON key is not allowed at ${path}.${key}`,422,"SITE_DOCUMENT_INVALID");
+    assertSafeJsonKeys((value as Record<string,unknown>)[key],`${path}.${key}`,seen);
+  }
+}
 const jsonKeySchema=z.string().max(500).refine(value=>!RESERVED_JSON_KEYS.has(value),"Reserved JSON key is not allowed");
 export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
   z.null(), z.boolean(), z.number().finite(), z.string(),
@@ -204,6 +220,7 @@ function collectElementIds(elements: SiteElement[], ids: string[]): void {
 }
 
 export function validateSiteDocument(input: unknown): SiteDocument {
+  assertSafeJsonKeys(input);
   const parsed = siteDocumentSchema.safeParse(input);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
