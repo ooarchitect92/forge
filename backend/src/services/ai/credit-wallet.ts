@@ -40,7 +40,7 @@ export async function reserveAiCredits(tx: WorkspaceTransaction, input: {
 }) {
   const units = validUnits(input.units);
   const key = reservationKey(input.executionId);
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${input.organizationId + ":" + METRIC}, 0))`;
+  await tx.$queryRaw<Array<{locked:number}>>`SELECT 1::int AS locked FROM pg_advisory_xact_lock(hashtextextended(${input.organizationId + ":" + METRIC}, 0))`;
   await tx.$executeRaw`UPDATE quota_reservations SET state='EXPIRED',"updatedAt"=now()
     WHERE "organizationId"=${input.organizationId}::uuid AND metric=${METRIC} AND state='RESERVED' AND "expiresAt"<=now()`;
   const existing = await tx.$queryRaw<Array<{ id: string; amount: bigint; state: string; expiresAt: Date }>>`
@@ -82,7 +82,7 @@ export async function settleAiCredits(tx: WorkspaceTransaction, input: {
   organizationId: string; actorId: string; executionId: string; action: "consume" | "release"; reason: string;
 }) {
   const key = reservationKey(input.executionId);
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${input.organizationId + ":" + METRIC}, 0))`;
+  await tx.$queryRaw<Array<{locked:number}>>`SELECT 1::int AS locked FROM pg_advisory_xact_lock(hashtextextended(${input.organizationId + ":" + METRIC}, 0))`;
   const rows = await tx.$queryRaw<Array<{ id: string; amount: bigint; state: string }>>`
     SELECT id,amount,state FROM quota_reservations
      WHERE "organizationId"=${input.organizationId}::uuid AND metric=${METRIC} AND "idempotencyKey"=${key} FOR UPDATE`;
