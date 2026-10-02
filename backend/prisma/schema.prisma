@@ -1362,6 +1362,46 @@ model FigmaOAuthState {
   @@map("figma_oauth_states")
 }
 
+model FigmaWebhookSubscription {
+  id             String    @id @default(uuid()) @db.Uuid
+  websiteId      String    @db.Uuid
+  organizationId String    @db.Uuid
+  workspaceId    String?   @db.Uuid
+  actorId        String?   @db.Uuid
+  figmaWebhookId String?   @unique @db.VarChar(255)
+  fileKey        String    @db.VarChar(255)
+  eventType      String    @default("FILE_UPDATE") @db.VarChar(60)
+  passcodeHash   String    @db.VarChar(64)
+  status         String    @default("CREATING") @db.VarChar(30)
+  lastEventAt    DateTime? @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  events         FigmaWebhookEvent[]
+
+  @@unique([websiteId, fileKey, eventType])
+  @@index([organizationId, websiteId, status])
+  @@map("figma_webhook_subscriptions")
+}
+
+model FigmaWebhookEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  subscriptionId String   @db.Uuid
+  websiteId      String   @db.Uuid
+  organizationId String   @db.Uuid
+  eventKey       String   @db.VarChar(64)
+  eventType      String   @db.VarChar(60)
+  fileKey        String   @db.VarChar(255)
+  summary        Json     @default("{}")
+  status         String   @default("PENDING") @db.VarChar(30)
+  receivedAt     DateTime @default(now()) @db.Timestamptz(6)
+  dismissedAt    DateTime? @db.Timestamptz(6)
+  subscription   FigmaWebhookSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@unique([subscriptionId, eventKey])
+  @@index([organizationId, websiteId, status, receivedAt])
+  @@map("figma_webhook_events")
+}
+
 model FigmaNodeMapping {
   id             String   @id @default(uuid()) @db.Uuid
   websiteId      String   @db.Uuid
