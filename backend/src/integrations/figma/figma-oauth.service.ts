@@ -176,6 +176,11 @@ export async function completeFigmaOAuth(input: { state: unknown; code: unknown;
     if (!website || website.organizationId !== organizationId || website.workspaceId !== row.workspaceId) {
       throw new AppError("Figma OAuth website scope changed", 409, "FIGMA_OAUTH_SCOPE_CHANGED");
     }
+    const claimed = await tx.figmaOAuthState.updateMany({
+      where: { id: row.id, consumedAt: null, expiresAt: { gt: new Date() } },
+      data: { consumedAt: new Date() },
+    });
+    if (claimed.count !== 1) throw new AppError("Figma OAuth state was already used", 409, "FIGMA_OAUTH_STATE_INVALID");
     return { row, verifier: decryptFigmaOAuthState(row.verifierCiphertext) };
   });
   if (!await canUserAccessResource(input.actorId, pending.row.websiteId, "*", "MANAGE_INTEGRATIONS")) {
@@ -218,11 +223,6 @@ export async function completeFigmaOAuth(input: { state: unknown; code: unknown;
   }
   await prisma.$transaction(async tx => {
     await tx.$queryRaw`SELECT set_config('app.tenant_id', ${organizationId}, true)`;
-    const changed = await tx.figmaOAuthState.updateMany({
-      where: { id: pending.row.id, consumedAt: null },
-      data: { consumedAt: new Date() },
-    });
-    if (changed.count !== 1) throw new AppError("Figma OAuth state was already used", 409, "FIGMA_OAUTH_STATE_INVALID");
     await tx.auditLog.create({ data: {
       userId: input.actorId,
       action: "FIGMA_OAUTH_CONNECTED",
