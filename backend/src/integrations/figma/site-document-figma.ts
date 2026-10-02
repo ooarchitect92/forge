@@ -207,7 +207,15 @@ export function figmaToSiteCommands(input:{fileKey:string;file:FigmaFileSnapshot
   for(const [externalId,meta] of Object.entries(input.file.styles||{})){
     const node=(meta.node_id&&nodesById.get(meta.node_id))||(meta.nodeId&&nodesById.get(meta.nodeId))||styleUsage.get(externalId);
     if(!node)continue;
-    const properties=nodeStyles(node);if(!Object.keys(properties).length)continue;
+    const properties=nodeStyles(node);
+    // Figma's file payload can expose a named style reference without repeating
+    // every resolved style value on the referencing node. Keep that identity as
+    // a valid CSS custom-property marker instead of silently dropping the style;
+    // a later refresh can enrich the same stable rule when resolved values arrive.
+    if(!Object.keys(properties).length){
+      properties["--forge-figma-style-name"]=String(meta.name||externalId).slice(0,255);
+      properties["--forge-figma-style-type"]=String(meta.styleType||"UNKNOWN").slice(0,80);
+    }
     const ruleId=stable(input.fileKey,externalId,"figma-style");
     mappings.push({kind:"STYLE",externalId,localId:ruleId});
     commands.push({type:"style.updateRule",rule:{id:ruleId,selector:`.${styleClass(input.fileKey,externalId)}`,properties}});
