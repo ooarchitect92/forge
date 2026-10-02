@@ -56,6 +56,11 @@ export function createSiteDocumentClient(apiUrl:string,websiteId:string){
         await fetch(`${base}/cms`,{credentials:"include"})
       );
     },
+    async metrics(){
+      return response<{success:boolean;metrics:{window:string;operations:number;errors:number;errorRate:number;averageDurationMs:number;p95DurationMs:number;commandCount:number;bySource:Array<{source:string;count:number}>;errorCodes:Array<{errorCode:string;count:number}>;recent:Array<{operation:string;source:string;durationMs:number;commandCount:number;status:string;errorCode?:string|null;createdAt:string}>}}>(
+        await fetch(`${base}/metrics`,{credentials:"include"})
+      );
+    },
     async figmaPreview(fileKey:string){
       return response<{success:boolean;baseRevision:number;fileName:string;version:string;warnings:string[];commands:SiteCommand[];conflicts:Array<{kind:string;externalId:string;localId:string;reason:string}>}>(
         await fetch(`${base}/figma/preview`,{method:"POST",credentials:"include",headers:headers(),body:JSON.stringify({fileKey})})
