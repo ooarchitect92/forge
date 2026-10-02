@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { AppError } from "../../utils/app-error.js";
 import type { SiteCommand } from "../../domain/site-commands.js";
 import type { JsonValue, SiteDocument, SiteElement } from "../../domain/site-document.js";
 
@@ -73,8 +74,11 @@ function nodeStyles(node:FigmaNode):Record<string,JsonValue>{
   }
   return styles;
 }
-function walkNodes(node:FigmaNode|undefined,visit:(node:FigmaNode,parent:FigmaNode|undefined)=>void,parent?:FigmaNode):void{
-  if(!node)return;visit(node,parent);for(const child of node.children||[])walkNodes(child,visit,node);
+function walkNodes(node:FigmaNode|undefined,visit:(node:FigmaNode,parent:FigmaNode|undefined)=>void,parent?:FigmaNode,depth=0,budget={count:0}):void{
+  if(!node)return;
+  if(depth>48||++budget.count>50_000) throw new AppError("Figma document exceeds the supported complexity",413,"FIGMA_DOCUMENT_TOO_COMPLEX");
+  visit(node,parent);
+  for(const child of (node.children||[]).slice(0,5000)) walkNodes(child,visit,node,depth+1,budget);
 }
 function variantProps(name:string,node:FigmaNode):Record<string,JsonValue>{
   const props:Record<string,JsonValue>={figmaNodeId:String(node.id||"")};
@@ -87,8 +91,9 @@ function variantProps(name:string,node:FigmaNode):Record<string,JsonValue>{
 }
 function toElement(
   fileKey:string,node:FigmaNode,mappings:Array<{kind:string;externalId:string;localId:string}>,
-  componentOwners:Map<string,string>,
+  componentOwners:Map<string,string>,depth=0,
 ):SiteElement {
+  if(depth>48||mappings.length>50_000) throw new AppError("Figma element tree exceeds the supported complexity",413,"FIGMA_DOCUMENT_TOO_COMPLEX");
   const external=String(node.id||createHash("sha1").update(JSON.stringify(node)).digest("hex").slice(0,12));
   const local=stable(fileKey,external,"figma");
   mappings.push({kind:"NODE",externalId:external,localId:local});
@@ -108,7 +113,7 @@ function toElement(
     props,styles:nodeStyles(node),
     ...(owner?{componentId:owner}:{}),
     ...(node.type==="TEXT"&&typeof node.characters==="string"?{content:node.characters}:{}),
-    children:(node.children||[]).slice(0,2000).map(child=>toElement(fileKey,child,mappings,componentOwners)),
+    children:(node.children||[]).slice(0,2000).map(child=>toElement(fileKey,child,mappings,componentOwners,depth+1)),
   };
 }
 function pages(snapshot:FigmaFileSnapshot):FigmaNode[] {
