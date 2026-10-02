@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { createSiteDocumentClient, SiteDocumentApiError } from "../../features/site-document/client";
-import type { CmsCollection, CmsItem, SiteCommand, SiteDocumentEnvelope, SiteElement } from "../../features/site-document/types";
+import type { CmsItem, SiteCommand, SiteDocumentEnvelope, SiteElement } from "../../features/site-document/types";
 
 const apiUrl=import.meta.env.VITE_API_URL||"http://localhost:5000";
 
