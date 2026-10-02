@@ -23,7 +23,7 @@ export default function SiteDocumentControlCenter() {
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState("");
   const [figmaKey,setFigmaKey] = useState("");
-  const [figmaPreview,setFigmaPreview] = useState<{fileName:string;version:string;warnings:string[];commands:SiteCommand[]}|null>(null);
+  const [figmaPreview,setFigmaPreview] = useState<{fileName:string;version:string;warnings:string[];commands:SiteCommand[];conflicts:Array<{kind:string;externalId:string;localId:string;reason:string}>}|null>(null);
   const [tokenPushPreview,setTokenPushPreview] = useState<{createCount:number;updateCount:number;skipCount:number;warnings:string[];actions:Array<{tokenId:string;tokenName:string;action:"CREATE"|"UPDATE"|"SKIP";reason?:string}>}|null>(null);
 
   const refresh = useCallback(async () => {
@@ -51,10 +51,11 @@ export default function SiteDocumentControlCenter() {
     try{const proposal=await client.figmaPreview(figmaKey.trim());setFigmaPreview(proposal);}
     catch(failure){setError(errorMessage(failure));}finally{setBusy(false);}
   }
-  async function applyFigma() {
+  async function applyFigma(conflictPolicy:"abort"|"prefer-figma"="abort") {
     if(!model||!figmaKey.trim()) return;
+    if(conflictPolicy==="prefer-figma"&&!window.confirm("Conflicts exist. Apply the reviewed Figma version over the conflicting Forge mappings?")) return;
     setBusy(true);setError("");
-    try{await client.figmaSync(figmaKey.trim(),model.revision);setFigmaPreview(null);await refresh();}
+    try{await client.figmaSync(figmaKey.trim(),model.revision,conflictPolicy);setFigmaPreview(null);await refresh();}
     catch(failure){setError(errorMessage(failure));}finally{setBusy(false);}
   }
   async function previewTokenPush(){
@@ -139,11 +140,15 @@ export default function SiteDocumentControlCenter() {
           {figmaPreview&&<div className="mt-5 rounded-xl border border-slate-700 bg-slate-950/70 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2"><div><div className="font-semibold">{figmaPreview.fileName}</div><div className="text-xs text-slate-500">Figma version {figmaPreview.version||"unknown"}</div></div><div className="text-sm font-bold text-violet-300">{figmaPreview.commands.length} commands</div></div>
             {figmaPreview.warnings.map(warning=><div key={warning} className="mt-3 rounded-lg bg-amber-400/10 p-2 text-xs text-amber-200">{warning}</div>)}
+            {figmaPreview.conflicts.length>0&&<div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200"><div className="font-bold">{figmaPreview.conflicts.length} two-sided conflict(s)</div>{figmaPreview.conflicts.slice(0,10).map(conflict=><div key={`${conflict.kind}:${conflict.externalId}`} className="mt-1 font-mono">{conflict.kind} · {conflict.localId}</div>)}</div>}
             <div className="mt-4 max-h-44 overflow-auto rounded-lg bg-black/30 p-3 font-mono text-[11px] text-slate-400">
               {figmaPreview.commands.slice(0,30).map((command,index)=><div key={index}>{String(index+1).padStart(2,"0")} · {command.type}</div>)}
               {figmaPreview.commands.length>30&&<div>… {figmaPreview.commands.length-30} more</div>}
             </div>
-            <button disabled={busy||!model?.persisted} onClick={applyFigma} className="mt-4 rounded-lg bg-violet-600 px-4 py-2 text-sm font-bold hover:bg-violet-500 disabled:opacity-40">Apply reviewed commands</button>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button disabled={busy||!model?.persisted||figmaPreview.conflicts.length>0} onClick={()=>applyFigma("abort")} className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-bold hover:bg-violet-500 disabled:opacity-40">Apply reviewed commands</button>
+              {figmaPreview.conflicts.length>0&&<button disabled={busy||!model?.persisted} onClick={()=>applyFigma("prefer-figma")} className="rounded-lg border border-red-500/50 px-4 py-2 text-sm font-bold text-red-200 disabled:opacity-40">Resolve using Figma</button>}
+            </div>
           </div>}
         </section>
 
