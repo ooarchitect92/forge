@@ -107,6 +107,19 @@ export default function SiteDocumentControlCenter() {
     try{await client.figmaTokenPush(figmaKey.trim(),model.revision);setTokenPushPreview(null);}
     catch(failure){setError(errorMessage(failure));}finally{setBusy(false);}
   }
+  async function exportFigmaStructure(){
+    if(!model)return;
+    setBusy(true);setError("");
+    try{
+      const json=await client.figmaPluginExport();
+      const blob=new Blob([json],{type:"application/json"});
+      const url=URL.createObjectURL(blob);
+      const anchor=document.createElement("a");
+      anchor.href=url;anchor.download=`forge-figma-${websiteId}-r${model.revision}.json`;
+      document.body.appendChild(anchor);anchor.click();anchor.remove();
+      URL.revokeObjectURL(url);
+    }catch(failure){setError(errorMessage(failure));}finally{setBusy(false);}
+  }
   async function restore(revision:number){
     if(!model||revision===model.revision) return;
     if(!window.confirm(`Restore revision ${revision}? This creates a new revision and does not erase history.`)) return;
@@ -168,8 +181,9 @@ export default function SiteDocumentControlCenter() {
             <input value={figmaKey} onChange={event=>setFigmaKey(event.target.value)} placeholder="AbCdEf123…" className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-violet-500"/>
             <button disabled={busy||!figmaKey.trim()||figmaConnected!==true} onClick={previewFigma} className="rounded-lg border border-violet-500/50 px-4 py-2 text-sm font-semibold text-violet-200 disabled:opacity-40">Import preview</button>
             <button disabled={busy||!figmaKey.trim()||!model?.persisted||figmaConnected!==true} onClick={previewTokenPush} className="rounded-lg border border-emerald-500/50 px-4 py-2 text-sm font-semibold text-emerald-200 disabled:opacity-40">Token push preview</button>
+            <button disabled={busy||!model?.persisted} onClick={exportFigmaStructure} className="rounded-lg border border-cyan-500/50 px-4 py-2 text-sm font-semibold text-cyan-200 disabled:opacity-40">Structural plugin export</button>
           </div>
-          <p className="mt-2 text-xs text-slate-500">The backend expects an active organization-scoped Figma connector credential; raw tokens are not accepted by this screen.</p>
+          <p className="mt-2 text-xs text-slate-500">REST sync uses an organization-scoped Figma connector credential. Structural outbound canvas updates use the Forge Figma plugin export so Forge never invents an unsupported generic node-write REST call.</p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button disabled={busy||figmaConnected!==true||!figmaKey.trim()||figmaSubscriptions.some(item=>item.fileKey===figmaKey.trim()&&item.status==="ACTIVE")} onClick={watchFigmaFile} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-bold text-slate-200 disabled:opacity-40">Watch file updates</button>
             {figmaSubscriptions.filter(item=>item.status!=="REVOKED").map(item=><span key={item.id} className="inline-flex items-center gap-2 rounded-full border border-slate-700 px-2 py-1 text-[11px] text-slate-300">{item.fileKey} · {item.status}<button disabled={busy} onClick={()=>removeFigmaWatch(item.id)} className="font-bold text-red-300">×</button></span>)}
