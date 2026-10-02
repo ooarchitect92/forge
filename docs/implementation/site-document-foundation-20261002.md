@@ -254,9 +254,11 @@ Approved AI changesets with typed commands are applied from the server-stored pr
 
 The backend bounds request time and response size and treats Variables access as optional when layout import can continue. Figma Variables write access still depends on the connected account plan, seat, edit permission and OAuth scope.
 
+For structural Forge → Figma output, the branch now includes `integrations/figma-plugin/`. Forge exports a bounded design-only payload from `POST /api/websites/:id/site-document/figma/plugin/export`; the Figma plugin reconciles page roots, element identities and reusable component definitions using the Plugin API. Merge mode updates Forge-owned identities without deleting unrelated Figma content, while Replace mode removes only Forge-managed children. No OAuth token, publishing credential, CMS integration secret or server-only configuration is sent to the plugin.
+
 ### Deliberate boundary
 
-Structural Forge -> Figma canvas-node mutation is **not claimed as production complete in this branch**. The official Variables REST surface is used for two-way token synchronization, but arbitrary canvas structure is not overwritten through an invented REST endpoint. Structural outbound sync requires a governed Figma Plugin/API write surface plus explicit conflict semantics.
+Structural Forge -> Figma canvas-node mutation now uses the governed development Figma Plugin in `integrations/figma-plugin` instead of an invented REST endpoint. The official Variables REST surface remains the two-way token path. Publishing the plugin through Figma review and live-account acceptance remain external release gates.
 
 ## Frontend
 
@@ -326,6 +328,17 @@ The AI qualification workflow now executes this suite after building the backend
 
 A draft PR is intentionally open so the repository's full PR qualification matrix runs without merging into `main`.
 
+## Realtime revision collaboration
+
+The authenticated collaboration WebSocket now emits `DOCUMENT_REVISION` after canonical initialize, command apply and restore commits. The editor-level SiteDocument provider joins the authorized website room and refreshes when a newer revision is observed. Existing cursor/selection presence remains separate, and stale writes are still rejected by revision preconditions.
+
+## Migration and performance tooling
+
+- `npm run site-document:migrate --prefix backend` is dry-run by default and lists eligible legacy sites without mutation.
+- Applying migration requires both `FORGE_SITE_DOCUMENT_MIGRATION=1` and `--apply`; unresolved organization/workspace ownership is never guessed.
+- `npm run site-document:benchmark --prefix backend` exercises a large synthetic document and bounded 500-command batch, reporting average/p95 latency and failing when the configured budget is exceeded.
+- CI syntax-checks the Figma plugin and runs the SiteDocument benchmark.
+
 ## Rollout
 
 Recommended rollout order:
@@ -354,11 +367,11 @@ Do not drop the new tables during an incident rollback; they contain revision/au
 
 These are intentionally explicit rather than represented as completed:
 
-1. Forge -> Figma structural canvas-node/component writes still require a governed Figma Plugin/write adapter; Variables are two-way and inbound structural conflicts are reviewed explicitly.
+1. The governed Figma development plugin implements structural outbound reconciliation, but Figma marketplace/review distribution and live customer acceptance remain external release gates.
 2. Live-provider acceptance against real customer Figma/Stitch accounts remains an external release gate; automated qualification uses fixtures/mocks and never invents provider success.
 3. Full migration of every legacy editor gesture from whole-document saves to typed commands remains incremental. New canonical managers and the editor provider use the command API; compatibility saves reconcile safely.
 4. Legacy CustomPostType APIs remain available for compatibility while CMS 2.0 is the canonical path for new work.
-5. Large-site/load qualification at production-scale page, element and CMS volumes remains a release gate.
+5. A repeatable large-document benchmark now exists; production-scale concurrent load qualification remains an environment/release exercise.
 6. Command telemetry is implemented; production APM/SLO alert wiring and dashboard provisioning remain deployment-environment work.
 
 Nothing in this branch is presented as production-complete until the PR qualification matrix and the remaining live-provider gates pass.
