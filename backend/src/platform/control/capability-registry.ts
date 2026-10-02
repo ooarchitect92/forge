@@ -26,6 +26,10 @@ export const capabilityRegistry: readonly CapabilityDefinition[] = Object.freeze
   { id: "integrations", owner: "integrations", criticality: "OPTIONAL", changeClass: "A", minTier: "T0", provider: "adapter-registry", desiredState: "ENABLED", dependencies: ["durable-jobs","audit"], offBehaviour: "new-side-effects-paused-history-retained" },
   { id: "realtime", owner: "collaboration", criticality: "OPTIONAL", changeClass: "B", minTier: "T1", provider: "websocket", desiredState: "ENABLED", dependencies: ["authorization"], offBehaviour: "polling-fallback" },
   { id: "ai", owner: "ai-platform", criticality: "OPTIONAL", changeClass: "A", minTier: "T1", provider: null, desiredState: "DISABLED", dependencies: ["durable-jobs","object-storage"], offBehaviour: "non-ai-features-unaffected" },
+  { id: "site-document", owner: "editor-platform", criticality: "REQUIRED", changeClass: "A", minTier: "T0", provider: "postgres", desiredState: "ENABLED", dependencies: ["primary-database","authorization","tenant-isolation","audit","idempotency"], offBehaviour: "legacy-editor-compatibility-remains" },
+  { id: "cms-v2", owner: "content-platform", criticality: "OPTIONAL", changeClass: "A", minTier: "T0", provider: "site-document", desiredState: "ENABLED", dependencies: ["site-document"], offBehaviour: "legacy-custom-post-types-remain-readable" },
+  { id: "figma-sync", owner: "integrations", criticality: "OPTIONAL", changeClass: "A", minTier: "T1", provider: "figma", desiredState: "ENABLED", dependencies: ["site-document","integrations"], offBehaviour: "manual-editor-and-canonical-document-remain-available" },
+  { id: "stitch-design", owner: "ai-platform", criticality: "OPTIONAL", changeClass: "A", minTier: "T1", provider: "google-stitch", desiredState: "ENABLED", dependencies: ["site-document","durable-jobs","audit"], offBehaviour: "manual-design-remains-available" },
 ]);
 
 const registryMap = new Map(capabilityRegistry.map((item) => [item.id, item]));
