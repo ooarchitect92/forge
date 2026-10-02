@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { AppError } from "../../utils/app-error.js";
 import { getActiveConnectorCredential } from "../../platform/integrations/connector-credentials.js";
-import { parseSecretJson } from "../../platform/secrets/secret-provider.js";
+import { parseSecretJson, storeSecretReference } from "../../platform/secrets/secret-provider.js";
+import { refreshFigmaOAuthToken } from "./figma-oauth.service.js";
 import { getScopedWebsite } from "../../services/websites/scoped-access.js";
 import { applySiteDocumentCommands, getSiteDocument } from "../../services/websites/site-document.service.js";
 import { prisma } from "../../config/prisma.js";
@@ -51,8 +52,16 @@ async function credential(websiteId:string,actorId:string){
   if(!website.organizationId) throw new AppError("Website ownership migration is required",503,"TENANT_MIGRATION_REQUIRED");
   const row=await getActiveConnectorCredential({organizationId:website.organizationId,websiteId,provider:"figma"});
   if(!row) throw new AppError("Connect a governed Figma credential to this website",503,"FIGMA_NOT_CONFIGURED");
-  const secret=await parseSecretJson(row.secretRef);
-  const token=secret.accessToken||secret.token;
+  let secret=await parseSecretJson(row.secretRef);
+  let token=secret.accessToken||secret.token;
+  const expiresAt=secret.expiresAt?Date.parse(secret.expiresAt):NaN;
+  if(token&&Number.isFinite(expiresAt)&&expiresAt<=Date.now()+5*60_000){
+    if(!secret.refreshToken) throw new AppError("Figma authorization expired; reconnect Figma",401,"FIGMA_OAUTH_REFRESH_FAILED");
+    const refreshed=await refreshFigmaOAuthToken(secret.refreshToken);
+    secret={...secret,accessToken:refreshed.accessToken,refreshToken:refreshed.refreshToken||secret.refreshToken,expiresAt:refreshed.expiresAt,figmaUserId:refreshed.figmaUserId||secret.figmaUserId||""};
+    await storeSecretReference(row.secretRef,secret);
+    token=refreshed.accessToken;
+  }
   if(!token) throw new AppError("Figma credential does not contain an access token",503,"FIGMA_NOT_CONFIGURED");
   return {website,token};
 }
