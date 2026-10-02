@@ -21,7 +21,7 @@ test("durable Stitch/Claude proposal lifecycle on PostgreSQL (fixture providers)
   t.after(async () => { for (const key of ["AI_PROMPT_ENCRYPTION_KEY", "STITCH_API_KEY", "ANTHROPIC_API_KEY", "AI_CLAUDE_DESIGN_MODEL", "AI_DESIGN_DAILY_UNITS", "AI_DESIGN_MAX_PAGES"]) { if (env[key] === undefined) delete process.env[key]; else process.env[key] = env[key]; } await prisma.$disconnect(); await pgPool.end(); });
   const owner = await prisma.user.create({ data: { email: `${randomUUID()}@example.test`, fullName: "Design fixture", status: "ACTIVE" } });
   const outsider = await prisma.user.create({ data: { email: `${randomUUID()}@example.test`, fullName: "Other tenant", status: "ACTIVE" } });
-  await prisma.subscriptionPlan.upsert({ where: { slug: "free" }, update: {}, create: { name: "Fixture", slug: "free", price: 0, currency: "INR", billingInterval: "monthly", websiteLimit: 1, features: [] } });
+  await prisma.subscriptionPlan.upsert({ where: { slug: "free" }, update: {}, create: { name: "Fixture", slug: "free", price: 0, currency: "INR", billingInterval: "monthly", websiteLimit: 1, aiCreditLimit: 1000, features: [] } });
   await assignDefaultFreePlan(owner.id);
   const { workspace } = await createTenantWorkspace(owner.id, { name: "Design fixtures" }, randomUUID());
   const websiteId = (await createTenantWorkspaceWebsite(owner.id, workspace.id, "Design fixture", randomUUID())).resourceId;
@@ -39,6 +39,7 @@ test("durable Stitch/Claude proposal lifecycle on PostgreSQL (fixture providers)
   registerJobHandler("AI_DESIGN_EXECUTION", async (payload, job) => runDesignExecution(String(payload.executionId), { id: job.id, lockToken: job.lockToken! }, { planner, designer, artifacts, converter: new HtmlDesignConverter() }));
   async function start() { return startDesignExecution(websiteId, owner.id, input, { key: randomUUID(), expectedVersion: (await website()).documentVersion }); }
   async function run(id: string) { const job = await prisma.backgroundJob.findFirstOrThrow({ where: { idempotencyKey: `ai:${id}` } }); await prisma.backgroundJob.update({ where: { id: job.id }, data: { runAt: new Date(0) } }); await processNextJob({ id: job.id }); return getDesignExecution(id, owner.id); }
+  async function creditState(id:string){return (await pgPool.query(`SELECT state FROM quota_reservations WHERE "idempotencyKey"=$1`,[`ai-execution:${id}`])).rows[0]?.state as string|undefined;}
   await t.test("enqueue and replay are durable, private and tenant scoped; no early mutation", async () => {
     const before = await website(), write = { key: randomUUID(), expectedVersion: before.documentVersion };
     const first = await startDesignExecution(websiteId, owner.id, input, write);
@@ -53,11 +54,11 @@ test("durable Stitch/Claude proposal lifecycle on PostgreSQL (fixture providers)
     const job = await prisma.backgroundJob.findFirstOrThrow({ where: { idempotencyKey: `ai:${first.executionId}` } });
     assert.deepEqual(job.payload, { executionId: first.executionId });
     await cancelDesignExecution(first.executionId, owner.id, randomUUID());
-    assert.equal((await run(first.executionId)).status, "CANCELLED"); assert.equal(plans, 0);
+    assert.equal((await run(first.executionId)).status, "CANCELLED"); assert.equal(plans, 0); assert.equal(await creditState(first.executionId), "RELEASED");
   });
   await t.test("generation proposes, apply commits once, subsequent manual editing works", async () => {
     const before = await website(), first = await start(), ready = await run(first.executionId);
-    assert.equal(ready.status, "COMPLETED", JSON.stringify(ready)); assert.ok(ready.changesetId);
+    assert.equal(ready.status, "COMPLETED", JSON.stringify(ready)); assert.ok(ready.changesetId); assert.equal(await creditState(first.executionId), "CONSUMED");
     assert.equal((await website()).documentVersion, before.documentVersion);
     const write = { key: randomUUID(), expectedVersion: before.documentVersion };
     const applied = await applyAiChangeset(ready.changesetId!, owner.id, write);
@@ -66,7 +67,7 @@ test("durable Stitch/Claude proposal lifecycle on PostgreSQL (fixture providers)
     assert.equal(manual.documentVersion, applied.documentVersion + 1);
   });
   await t.test("linked retry reuses completed paid checkpoints without overwriting original", async () => {
-    failExport = true; const first = await start(); assert.equal((await run(first.executionId)).status, "FAILED");
+    failExport = true; const first = await start(); assert.equal((await run(first.executionId)).status, "FAILED"); assert.equal(await creditState(first.executionId), "RELEASED");
     const previousPlans = plans, previousScreens = screens;
     await assert.rejects(retryDesignExecution(first.executionId, outsider.id, { key: randomUUID(), expectedVersion: (await website()).documentVersion }));
     failExport = false;
@@ -77,7 +78,7 @@ test("durable Stitch/Claude proposal lifecycle on PostgreSQL (fixture providers)
   });
   await t.test("uncertain screen creation cannot be blindly retried", async () => {
     failScreen = true; const first = await start(), result = await run(first.executionId); failScreen = false;
-    assert.equal(result.status, "RECONCILIATION_REQUIRED"); assert.equal(result.errorCode, "AI_EXTERNAL_OUTCOME_UNKNOWN");
+    assert.equal(result.status, "RECONCILIATION_REQUIRED"); assert.equal(result.errorCode, "AI_EXTERNAL_OUTCOME_UNKNOWN"); assert.equal(await creditState(first.executionId), "CONSUMED");
     await assert.rejects(retryDesignExecution(first.executionId, owner.id, { key: randomUUID(), expectedVersion: (await website()).documentVersion }), { code: "AI_EXECUTION_STATE" });
     assert.equal(JSON.stringify(result).includes("SECRET"), false);
   });

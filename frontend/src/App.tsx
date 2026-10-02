@@ -26,6 +26,10 @@ const CustomEntryEditor = lazy(() => import("./pages/dashboard/CustomEntryEditor
 const SharedTemplatePreviewPage = lazy(() => import("./pages/templates/SharedTemplatePreviewPage"));
 const PublishedSite = lazy(() => import("./pages/published/PublishedSite"));
 const PlatformControlPage = lazy(() => import("./features/platform-control/PlatformControlPage"));
+const SiteDocumentControlCenter = lazy(() => import("./pages/dashboard/SiteDocumentControlCenter"));
+const CanonicalCmsManager = lazy(() => import("./pages/dashboard/CanonicalCmsManager"));
+const CanonicalDesignSystemManager = lazy(() => import("./pages/dashboard/CanonicalDesignSystemManager"));
+const CanonicalExperienceManager = lazy(() => import("./pages/dashboard/CanonicalExperienceManager"));
 
 interface RoleRouteProps {
   allowedRoles: UserRole[];
@@ -288,6 +292,42 @@ function App() {
             element={
               <RoleRoute allowedRoles={["USER", "ADMIN", "SUPER_ADMIN"]}>
                 <WebsiteEditor />
+              </RoleRoute>
+            }
+          />
+
+          <Route
+            path="/dashboard/site-document/:websiteId"
+            element={
+              <RoleRoute allowedRoles={["USER", "ADMIN", "SUPER_ADMIN"]}>
+                <SiteDocumentControlCenter />
+              </RoleRoute>
+            }
+          />
+
+          <Route
+            path="/dashboard/site-document/:websiteId/cms"
+            element={
+              <RoleRoute allowedRoles={["USER", "ADMIN", "SUPER_ADMIN"]}>
+                <CanonicalCmsManager />
+              </RoleRoute>
+            }
+          />
+
+          <Route
+            path="/dashboard/site-document/:websiteId/design-system"
+            element={
+              <RoleRoute allowedRoles={["USER", "ADMIN", "SUPER_ADMIN"]}>
+                <CanonicalDesignSystemManager />
+              </RoleRoute>
+            }
+          />
+
+          <Route
+            path="/dashboard/site-document/:websiteId/experience"
+            element={
+              <RoleRoute allowedRoles={["USER", "ADMIN", "SUPER_ADMIN"]}>
+                <CanonicalExperienceManager />
               </RoleRoute>
             }
           />

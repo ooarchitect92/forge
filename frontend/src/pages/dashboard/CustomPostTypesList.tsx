@@ -37,9 +37,14 @@ export default function CustomPostTypesList() {
                     <h1 className="text-2xl font-bold text-slate-800">Custom Post Types</h1>
                     <p className="text-sm text-slate-500 mt-1">Manage architectural content models dynamically integrated natively.</p>
                 </div>
-                <Link to={`/dashboard/cpts/${websiteId}/builder`} className="bg-blue-600 text-white px-5 py-2 rounded-xl text-sm font-bold shadow-md hover:bg-blue-700 transition">
-                    + Add Content Type
-                </Link>
+                <div className="flex gap-2">
+                    <Link to={`/dashboard/site-document/${websiteId}`} className="border border-violet-200 bg-violet-50 text-violet-700 px-4 py-2 rounded-xl text-sm font-bold hover:bg-violet-100 transition">
+                        Canonical Model
+                    </Link>
+                    <Link to={`/dashboard/cpts/${websiteId}/builder`} className="bg-blue-600 text-white px-5 py-2 rounded-xl text-sm font-bold shadow-md hover:bg-blue-700 transition">
+                        + Add Content Type
+                    </Link>
+                </div>
             </div>
 
             {loading ? (

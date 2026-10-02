@@ -13,6 +13,11 @@ import { ConversionError } from "./converter.js";
 import { IsolatedDesignConverter } from "./isolated-converter.js";
 import { applyScopedEdits } from "./edit-operations.js";
 import { createHash } from "node:crypto";
+import { diffVisualSiteDocuments } from "../../../domain/site-document-diff.js";
+import { legacyWebsiteToSiteDocument } from "../../../domain/site-document-legacy.js";
+import { validateSiteDocument } from "../../../domain/site-document.js";
+import { ensureSiteDocumentState } from "../../../services/websites/site-document-storage.js";
+import { settleAiCredits } from "../../../services/ai/credit-wallet.js";
 
 type Ports = { planner: DesignPlanner; designer: DesignProvider; artifacts: ArtifactStore; converter: DesignConverter };
 export async function runDesignExecution(executionId: string, job: { id: string; lockToken: string }, supplied?: Ports) {
@@ -60,6 +65,12 @@ export async function runDesignExecution(executionId: string, job: { id: string;
     const prompt = decryptPrompt(execution.promptCiphertext);
     const website = await transaction(tx => tx.website.findUniqueOrThrow({ where: { id: execution.websiteId } }));
     if (website.documentVersion !== execution.expectedDocumentVersion) throw new AppError("The website changed before this execution started", 412, "DOCUMENT_VERSION_CONFLICT");
+    const designSystemContext = await transaction(async tx => {
+      const canonical = await ensureSiteDocumentState(tx, website, execution.actorId);
+      const tokens = canonical.document.tokens.slice(0, 80).map(token => ({ name: token.name, category: token.category, value: token.value }));
+      const components = canonical.document.components.slice(0, 80).map(component => component.name);
+      return { tokens, components };
+    });
     // A linked retry can reuse only completed checkpoints at the same base version.
     if (execution.parentExecutionId) {
       const parent = await prisma.aiExecution.findUniqueOrThrow({ where: { id: execution.parentExecutionId } });
@@ -78,7 +89,7 @@ export async function runDesignExecution(executionId: string, job: { id: string;
       const operations = await stage("EDIT", () => ports.planner.edit(base, prompt, scope));
       document = applyScopedEdits(base, operations, scope);
     } else {
-      const plan = sitePlanSchema.parse(await stage("PLAN", () => ports.planner.plan(prompt)));
+      const plan = sitePlanSchema.parse(await stage("PLAN", () => ports.planner.plan(`${prompt}\n\nExisting Forge design-system context (reuse where appropriate; do not reveal as site copy): ${JSON.stringify(designSystemContext)}`)));
       if (plan.pages.length > config.maxPages) throw new AppError("Plan exceeds the configured page limit", 422, "AI_PAGE_LIMIT");
       setupRequired = plan.setupRequired;
       const projectId = await stage("PROJECT", () => ports.designer.createProject(`Forge ${executionId}`), true);
@@ -86,7 +97,7 @@ export async function runDesignExecution(executionId: string, job: { id: string;
       for (let index = 0; index < plan.pages.length; index++) {
         const page = plan.pages[index]!;
         const screen = await stage(`SCREEN_${index}`, () => ports.designer.generate(projectId,
-          `${DESIGN_CONTRACT}\nShared design: ${plan.design}\nSite routes: ${JSON.stringify(plan.pages.map(item => ({ name: item.name, slug: item.slug })))}\nPage: ${page.name}\n${page.brief}`), true);
+          `${DESIGN_CONTRACT}\nShared design: ${plan.design}\nExisting Forge design system: ${JSON.stringify(designSystemContext)}\nSite routes: ${JSON.stringify(plan.pages.map(item => ({ name: item.name, slug: item.slug })))}\nPage: ${page.name}\n${page.brief}`), true);
         const html = await stage(`EXPORT_${index}`, () => ports.designer.html(projectId, screen.screenId));
         const elements = await stage(`CONVERT_${index}`, async () => {
           try { return await ports.converter.convert(html, `${executionId}:${index}`); }
@@ -107,11 +118,35 @@ export async function runDesignExecution(executionId: string, job: { id: string;
     const checkLinks = (nodes: unknown) => { if (!Array.isArray(nodes)) return; for (const node of nodes as JsonObject[]) { if (typeof node.href === "string" && !routes.has(node.href)) throw new ConversionError(["UNRESOLVED_LINK"]); checkLinks(node.children); } };
     pages.forEach(page => checkLinks(page.elements));
     await transaction(async tx => {
+      const canonical = await ensureSiteDocumentState(tx, website, execution.actorId);
+      const generatedVisual = legacyWebsiteToSiteDocument({
+        websiteId: website.id, name: website.name, slug: website.slug, editorData: document, cmsTypes: [],
+      });
+      const targetCanonical = validateSiteDocument({
+        ...canonical.document,
+        site: {
+          ...canonical.document.site,
+          title: generatedVisual.site.title || canonical.document.site.title,
+          slug: canonical.document.site.slug,
+          defaultLocale: canonical.document.site.defaultLocale,
+          metadata: canonical.document.site.metadata,
+        },
+        pages: generatedVisual.pages,
+        tokens: [
+          ...canonical.document.tokens.filter(token => token.source !== "stitch" && token.source !== "import"),
+          ...generatedVisual.tokens.map(token => ({ ...token, source: "stitch" as const })),
+        ],
+        extensions: { ...canonical.document.extensions, ...generatedVisual.extensions },
+      });
+      const proposedCommands = diffVisualSiteDocuments(canonical.document, targetCanonical);
+      if (!proposedCommands.length) throw new AppError("The design proposal does not change the current site", 422, "AI_NO_CHANGES");
       await tx.aiChangeset.create({ data: { executionId, websiteId: execution.websiteId, workspaceId: execution.workspaceId, organizationId: execution.organizationId, actorId: execution.actorId,
         expectedDocumentVersion: execution.expectedDocumentVersion!, proposedDocument: document as Prisma.InputJsonValue,
-        summary: { provider: "stitch-claude", pageNames: pages.map(page => page.name), pageCount: pages.length, setupRequired, conversionVersion: 1, proposalHash: createHash("sha256").update(JSON.stringify(document)).digest("hex") } as Prisma.InputJsonValue,
+        proposedCommands: proposedCommands as unknown as Prisma.InputJsonValue,
+        summary: { provider: "stitch-claude", pageNames: pages.map(page => page.name), pageCount: pages.length, setupRequired, conversionVersion: 2, commandCount: proposedCommands.length, commandHash: createHash("sha256").update(JSON.stringify(proposedCommands)).digest("hex"), proposalHash: createHash("sha256").update(JSON.stringify(document)).digest("hex") } as Prisma.InputJsonValue,
       } });
       await tx.aiExecution.update({ where: { id: executionId }, data: { status: "COMPLETED", stage: "PENDING_REVIEW", completedAt: new Date(), outputSummary: { pageCount: pages.length } } });
+      await settleAiCredits(tx, { organizationId: execution.organizationId!, actorId: execution.actorId, executionId, action: "consume", reason: "design-proposal-completed" });
       await tx.auditLog.create({ data: { userId: execution.actorId, action: "AI_DESIGN_READY", targetResource: `ai-execution:${executionId}`, details: { pageCount: pages.length } } });
       await tx.$executeRaw`INSERT INTO workspace_outbox ("organizationId","actorId",operation,"resourceId") VALUES (${execution.organizationId}::uuid,${execution.actorId}::uuid,'AI_DESIGN_READY',${execution.websiteId}::uuid)`;
     });
@@ -124,6 +159,11 @@ export async function runDesignExecution(executionId: string, job: { id: string;
           const changed = await tx.aiExecution.updateMany({ where: { id: executionId, status: { in: ["QUEUED", "RUNNING"] } }, data: { status: code === "AI_EXTERNAL_OUTCOME_UNKNOWN" ? "RECONCILIATION_REQUIRED" : "FAILED", errorCode: code, completedAt: new Date() } });
           if (!changed.count) return;
           await tx.aiExecutionStage.updateMany({ where: { executionId, status: "RUNNING" }, data: { status: code === "AI_EXTERNAL_OUTCOME_UNKNOWN" ? "UNKNOWN" : "FAILED", completedAt: new Date() } });
+          await settleAiCredits(tx, {
+            organizationId: execution.organizationId!, actorId: execution.actorId, executionId,
+            action: code === "AI_EXTERNAL_OUTCOME_UNKNOWN" ? "consume" : "release",
+            reason: code === "AI_EXTERNAL_OUTCOME_UNKNOWN" ? "provider-outcome-unknown" : "design-execution-failed",
+          });
           await tx.auditLog.create({ data: { userId: execution.actorId, action: "AI_DESIGN_FAILED", targetResource: `ai-execution:${executionId}`, details: { code } } });
           await tx.$executeRaw`INSERT INTO workspace_outbox ("organizationId","actorId",operation,"resourceId") VALUES (${execution.organizationId}::uuid,${execution.actorId}::uuid,'AI_DESIGN_FAILED',${execution.websiteId}::uuid)`;
         }, false);

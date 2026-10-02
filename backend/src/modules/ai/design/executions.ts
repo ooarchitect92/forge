@@ -8,6 +8,7 @@ import { getScopedWebsiteInTransaction } from "../../../services/websites/scoped
 import { decryptPrompt, encryptPrompt, retentionExpiry } from "../prompt-vault.js";
 import { validateSiteBrief } from "../site-brief.js";
 import { designConfig, designConfigSchema } from "./config.js";
+import { getAiCreditBalance, reserveAiCredits, settleAiCredits } from "../../../services/ai/credit-wallet.js";
 
 export const executionRequestSchema = z.object({
   prompt: z.string().min(12).max(64000), operation: z.enum(["GENERATE_SITE", "EDIT_DOCUMENT"]),
@@ -39,7 +40,9 @@ export async function startDesignExecution(websiteId: string, actorId: string, r
       const usage = await tx.aiExecution.aggregate({ where: { workspaceId: website.workspaceId, createdAt: { gte: start } }, _sum: { reservedUnits: true } });
       if ((usage._sum.reservedUnits ?? 0) + units > config.dailyUnits) throw new AppError("Workspace design generation quota reached", 429, "AI_QUOTA_EXCEEDED");
       if (await tx.aiExecution.count({ where: { websiteId, status: { in: ["QUEUED", "RUNNING"] }, provider: "stitch-claude" } })) throw new AppError("A design execution is already active for this website", 409, "AI_EXECUTION_ACTIVE");
-      const execution = await tx.aiExecution.create({ data: { id: randomUUID(), websiteId, workspaceId: website.workspaceId, organizationId: website.organizationId, actorId,
+      const executionId = randomUUID();
+      await reserveAiCredits(tx, { organizationId: website.organizationId!, actorId, executionId, units });
+      const execution = await tx.aiExecution.create({ data: { id: executionId, websiteId, workspaceId: website.workspaceId, organizationId: website.organizationId, actorId,
         provider: "stitch-claude", model: config.claudeModel, promptVersion: "design-pipeline-v1", operation: input.operation, status: "QUEUED", stage: "QUEUED",
         promptCiphertext: encryptPrompt(input.prompt), promptExpiresAt: retentionExpiry(), expectedDocumentVersion: write.expectedVersion,
         inputSummary: { promptLength: input.prompt.length }, scope: input.scope, providerSnapshot: config, parentExecutionId: parentId, reservedUnits: units,
@@ -73,9 +76,13 @@ export async function getDesignExecution(id: string, actorId: string) {
   }
   const stages = await prisma.aiExecutionStage.findMany({ where: { executionId: id }, orderBy: { startedAt: "asc" }, select: { key: true, status: true, startedAt: true, completedAt: true } });
   const proposal = await prisma.aiChangeset.findUnique({ where: { executionId: id }, select: { id: true } });
+  const creditBalance = row.organizationId ? await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT set_config('app.tenant_id', ${row.organizationId}, true)`;
+    return getAiCreditBalance(tx, { organizationId: row.organizationId!, actorId });
+  }).catch(() => null) : null;
   return { id: row.id, websiteId: row.websiteId, status: row.status, stage: row.stage, errorCode: row.errorCode, expectedDocumentVersion: row.expectedDocumentVersion,
     stages, changesetId: proposal?.id ?? null, retryAvailable: !!row.promptCiphertext && !!row.promptExpiresAt && row.promptExpiresAt > new Date() && row.status === "FAILED",
-    reservedProviderCalls: row.reservedUnits, createdAt: row.createdAt, completedAt: row.completedAt };
+    reservedProviderCalls: row.reservedUnits, creditBalance, createdAt: row.createdAt, completedAt: row.completedAt };
 }
 
 export async function cancelDesignExecution(id: string, actorId: string, key: string) {
@@ -88,6 +95,7 @@ export async function cancelDesignExecution(id: string, actorId: string, key: st
       const changed = await tx.aiExecution.updateMany({ where: { id, status: { in: ["QUEUED", "RUNNING"] } }, data: { status: "CANCELLED", cancelRequestedAt: new Date(), completedAt: new Date() } });
       if (changed.count !== 1) throw new AppError("Execution cannot be cancelled in its current state", 409, "AI_EXECUTION_STATE");
       await tx.backgroundJob.updateMany({ where: { type: "AI_DESIGN_EXECUTION", organizationId: row.organizationId, idempotencyKey: `ai:${id}`, status: { in: ["QUEUED", "RUNNING"] } }, data: { status: "CANCELLED", completedAt: new Date() } });
+      await settleAiCredits(tx, { organizationId: row.organizationId!, actorId, executionId: id, action: "release", reason: "execution-cancelled" });
       return { resourceId: row.websiteId, executionId: id };
     },
   });

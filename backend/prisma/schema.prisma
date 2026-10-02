@@ -849,6 +849,7 @@ model AiChangeset {
   status String @default("PENDING_REVIEW") @db.VarChar(30)
   expectedDocumentVersion Int
   proposedDocument Json
+  proposedCommands Json?
   summary Json @default("{}")
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   approvedAt DateTime? @db.Timestamptz(6)
@@ -1197,4 +1198,226 @@ model WorkspaceInvitation {
   updatedAt DateTime @default(now()) @db.Timestamptz(6)
   @@index([organizationId, recipientUserId, status])
   @@map("workspace_invitations")
+}
+
+
+model SiteDocumentState {
+  websiteId      String   @id @db.Uuid
+  organizationId String   @db.Uuid
+  workspaceId    String?  @db.Uuid
+  schemaVersion  Int      @default(1)
+  revision       Int      @default(1)
+  document       Json
+  updatedBy      String?  @db.Uuid
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@index([organizationId, updatedAt])
+  @@index([workspaceId])
+  @@map("site_document_states")
+}
+
+model SiteDocumentRevision {
+  id             String   @id @default(uuid()) @db.Uuid
+  websiteId      String   @db.Uuid
+  organizationId String   @db.Uuid
+  workspaceId    String?  @db.Uuid
+  revision       Int
+  schemaVersion  Int
+  document       Json
+  commands       Json     @default("[]")
+  source         String   @default("USER") @db.VarChar(30)
+  actorId        String?  @db.Uuid
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([websiteId, revision])
+  @@index([organizationId, websiteId, createdAt])
+  @@map("site_document_revisions")
+}
+
+model SiteDocumentCommand {
+  id             String   @id @default(uuid()) @db.Uuid
+  websiteId      String   @db.Uuid
+  organizationId String   @db.Uuid
+  workspaceId    String?  @db.Uuid
+  revision       Int
+  sequence       Int
+  actorId        String?  @db.Uuid
+  source         String   @default("USER") @db.VarChar(30)
+  commandType    String   @db.VarChar(100)
+  payload        Json
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([websiteId, revision, sequence])
+  @@index([organizationId, websiteId, createdAt])
+  @@map("site_document_commands")
+}
+
+model SiteDocumentMetric {
+  id             String   @id @default(uuid()) @db.Uuid
+  websiteId      String   @db.Uuid
+  organizationId String   @db.Uuid
+  workspaceId    String?  @db.Uuid
+  actorId        String?  @db.Uuid
+  operation      String   @db.VarChar(60)
+  source         String   @default("USER") @db.VarChar(30)
+  durationMs     Int
+  commandCount   Int      @default(0)
+  status         String   @db.VarChar(20)
+  errorCode      String?  @db.VarChar(100)
+  idempotencyKey String?  @db.VarChar(128)
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([websiteId, operation, idempotencyKey])
+  @@index([organizationId, websiteId, createdAt])
+  @@index([websiteId, status, createdAt])
+  @@map("site_document_metrics")
+}
+
+model CmsCollectionV2 {
+  id             String   @id @db.VarChar(200)
+  websiteId      String   @db.Uuid
+  organizationId String   @db.Uuid
+  workspaceId    String?  @db.Uuid
+  name           String   @db.VarChar(255)
+  slug           String   @db.VarChar(255)
+  description    String?  @db.VarChar(2000)
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@unique([websiteId, slug])
+  @@index([organizationId, websiteId])
+  @@map("cms_collections_v2")
+}
+
+model CmsFieldV2 {
+  id             String   @id @db.VarChar(200)
+  collectionId   String   @db.VarChar(200)
+  organizationId String   @db.Uuid
+  websiteId      String   @db.Uuid
+  key            String   @db.VarChar(255)
+  name           String   @db.VarChar(255)
+  type           String   @db.VarChar(50)
+  required       Boolean  @default(false)
+  position       Int      @default(0)
+  config         Json     @default("{}")
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@unique([collectionId, key])
+  @@index([organizationId, websiteId, collectionId])
+  @@map("cms_fields_v2")
+}
+
+model CmsItemV2 {
+  id             String   @id @db.VarChar(200)
+  collectionId   String   @db.VarChar(200)
+  organizationId String   @db.Uuid
+  websiteId      String   @db.Uuid
+  title          String?  @db.VarChar(500)
+  slug           String?  @db.VarChar(500)
+  status         String   @default("DRAFT") @db.VarChar(30)
+  data           Json     @default("{}")
+  actorId        String?  @db.Uuid
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@unique([collectionId, slug])
+  @@index([organizationId, websiteId, collectionId, status])
+  @@map("cms_items_v2")
+}
+
+model CmsBindingV2 {
+  id             String   @id @db.VarChar(200)
+  websiteId      String   @db.Uuid
+  organizationId String   @db.Uuid
+  workspaceId    String?  @db.Uuid
+  elementId      String   @db.VarChar(200)
+  property       String   @db.VarChar(255)
+  collectionId   String   @db.VarChar(200)
+  fieldId        String   @db.VarChar(200)
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@unique([websiteId, elementId, property])
+  @@index([organizationId, websiteId, collectionId])
+  @@map("cms_bindings_v2")
+}
+
+model FigmaOAuthState {
+  id                 String    @id @default(uuid()) @db.Uuid
+  organizationId     String    @db.Uuid
+  workspaceId        String?   @db.Uuid
+  websiteId          String    @db.Uuid
+  actorId            String    @db.Uuid
+  stateHash          String    @unique @db.VarChar(64)
+  verifierCiphertext String    @db.Text
+  scopes             Json      @default("[]")
+  expiresAt          DateTime  @db.Timestamptz(6)
+  consumedAt         DateTime? @db.Timestamptz(6)
+  createdAt          DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([organizationId, websiteId, createdAt])
+  @@index([expiresAt])
+  @@map("figma_oauth_states")
+}
+
+model FigmaWebhookSubscription {
+  id             String    @id @default(uuid()) @db.Uuid
+  websiteId      String    @db.Uuid
+  organizationId String    @db.Uuid
+  workspaceId    String?   @db.Uuid
+  actorId        String?   @db.Uuid
+  figmaWebhookId String?   @unique @db.VarChar(255)
+  fileKey        String    @db.VarChar(255)
+  eventType      String    @default("FILE_UPDATE") @db.VarChar(60)
+  passcodeHash   String    @db.VarChar(64)
+  status         String    @default("CREATING") @db.VarChar(30)
+  lastEventAt    DateTime? @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  events         FigmaWebhookEvent[]
+
+  @@unique([websiteId, fileKey, eventType])
+  @@index([organizationId, websiteId, status])
+  @@map("figma_webhook_subscriptions")
+}
+
+model FigmaWebhookEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  subscriptionId String   @db.Uuid
+  websiteId      String   @db.Uuid
+  organizationId String   @db.Uuid
+  eventKey       String   @db.VarChar(64)
+  eventType      String   @db.VarChar(60)
+  fileKey        String   @db.VarChar(255)
+  summary        Json     @default("{}")
+  status         String   @default("PENDING") @db.VarChar(30)
+  receivedAt     DateTime @default(now()) @db.Timestamptz(6)
+  dismissedAt    DateTime? @db.Timestamptz(6)
+  appliedAt      DateTime? @db.Timestamptz(6)
+  appliedRevision Int?
+  subscription   FigmaWebhookSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@unique([subscriptionId, eventKey])
+  @@index([organizationId, websiteId, status, receivedAt])
+  @@map("figma_webhook_events")
+}
+
+model FigmaNodeMapping {
+  id             String   @id @default(uuid()) @db.Uuid
+  websiteId      String   @db.Uuid
+  organizationId String   @db.Uuid
+  workspaceId    String?  @db.Uuid
+  fileKey        String   @db.VarChar(255)
+  kind           String   @db.VarChar(40)
+  externalId     String   @db.VarChar(255)
+  localId        String   @db.VarChar(200)
+  externalVersion String? @db.VarChar(255)
+  localHash       String? @db.VarChar(64)
+  lastSyncedAt   DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([websiteId, fileKey, kind, externalId])
+  @@index([organizationId, websiteId, fileKey])
+  @@map("figma_node_mappings")
 }

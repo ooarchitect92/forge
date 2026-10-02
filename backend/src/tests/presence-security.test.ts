@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
 import { prisma, pgPool } from "../config/prisma.js";
 import { digest, opaqueToken } from "../modules/identity/domain/security-policy.js";
-import { initPresenceWebSocketServer, getPresenceRoomsSummary } from "../services/collaboration/presence.service.js";
+import { initPresenceWebSocketServer, getPresenceRoomsSummary, notifyWebsiteDocumentRevision } from "../services/collaboration/presence.service.js";
 
 const database=new URL(process.env.DATABASE_URL??"invalid:");
 if(process.env.NODE_ENV!=="test" || process.env.FORGE_DISPOSABLE_TEST_DB!=="1" ||
@@ -95,6 +95,14 @@ test("authenticated presence channel and revocation contracts", {timeout:45000},
     const burst=await connect(ownerToken);const done=closed(burst);
     for(let i=0;i<40;i++)burst.send(JSON.stringify({type:"PING"}));
     assert.equal(await done,1008);
+  });
+  await t.test("canonical revision events are broadcast only to joined authorized peers",async()=>{
+    const revision=frame(a!,"DOCUMENT_REVISION");
+    notifyWebsiteDocumentRevision(sites[0].id,{revision:7,source:"USER",actorId:owner.id});
+    const message=await revision;
+    assert.equal(message.websiteId,sites[0].id);
+    assert.equal(message.revision,7);
+    assert.equal(message.source,"USER");
   });
   await t.test("session revocation removes a live authorized connection within its lease",async()=>{
     const done=closed(a!);const start=Date.now();

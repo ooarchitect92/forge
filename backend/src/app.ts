@@ -71,6 +71,7 @@ import integrationSecretRoutes from "./services/integrations/secret-reference.ro
 import saasPlatformControlRoutes from "./services/control/control.routes.js";
 import tenantCapabilityRoutes from "./services/capabilities/tenant-capabilities.routes.js";
 import aiRoutes from "./routes/ai.routes.js";
+import figmaRoutes from "./routes/figma.routes.js";
 
 const authRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -179,6 +180,10 @@ app.use("/api/v1/tenant-workspaces", tenantWorkspaceRoutes);
 
 // Public API v1 Standardized Endpoints
 app.use("/api/v1", apiV1Routes);
+
+// Figma OAuth and governed design sync connection surface.
+app.use("/api/v1/integrations/figma", figmaRoutes);
+app.use("/api/integrations/figma", figmaRoutes);
 
 // Websites & Workspace
 app.use("/api/v1/websites", websiteRoutes);

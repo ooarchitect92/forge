@@ -19,7 +19,9 @@
     "db:migrate": "prisma migrate deploy",
     "worker:platform": "node dist/workers/platform-worker.js",
     "worker": "node dist/workers/main.js",
-    "dev:worker": "npm run build && node dist/workers/main.js"
+    "dev:worker": "npm run build && node dist/workers/main.js",
+    "site-document:migrate": "tsx scripts/migrate-site-documents.ts",
+    "site-document:benchmark": "tsx scripts/benchmark-site-document.ts"
   },
   "keywords": [],
   "author": "",
@@ -74,12 +76,13 @@
     "typescript": "^7.0.2"
   },
   "overrides": {
-    "fast-uri": "3.1.7",
+    "fast-uri": "3.1.8",
     "@prisma/config": {
       "deepmerge-ts": "8.0.2"
     },
     "prisma": {
       "mysql2": "3.24.4"
-    }
+    },
+    "ip-address": "10.7.3"
   }
 }

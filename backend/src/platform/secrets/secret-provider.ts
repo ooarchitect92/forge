@@ -43,7 +43,12 @@ async function secretsManagerRequest(target:string,body:Record<string,unknown>){
     method:"POST",headers:{...headers,authorization},body:payload,redirect:"error",signal:AbortSignal.timeout(5000),
   });
   const text=await response.text();
-  if(!response.ok) throw new AppError(`Secret provider rejected the request (HTTP ${response.status})`,502,"SECRET_PROVIDER_FAILED");
+  if(!response.ok){
+    let type="";try{const parsed=JSON.parse(text) as Record<string,unknown>;type=String(parsed.__type||parsed.code||"");}catch{}
+    if(type.includes("ResourceExistsException")) throw new AppError("Secret already exists",409,"SECRET_ALREADY_EXISTS");
+    if(type.includes("ResourceNotFoundException")) throw new AppError("Secret was not found",404,"SECRET_NOT_FOUND");
+    throw new AppError(`Secret provider rejected the request (HTTP ${response.status})`,502,"SECRET_PROVIDER_FAILED");
+  }
   try{return JSON.parse(text) as Record<string,any>;}catch{throw new AppError("Secret provider returned invalid JSON",502,"SECRET_PROVIDER_FAILED");}
 }
 
@@ -81,4 +86,30 @@ export async function parseSecretJson(reference:string):Promise<Record<string,st
   const result:Record<string,string>={};
   for(const [key,value] of Object.entries(parsed as Record<string,unknown>)) if(typeof value==="string") result[key]=value;
   return result;
+}
+
+
+export async function storeSecretJson(secretId:string,value:Record<string,unknown>):Promise<string>{
+  const id=String(secretId||"").trim();
+  if(!id||id.length>500||/\s/.test(id)) throw new AppError("Secret identifier is invalid",500,"SECRET_REFERENCE_NOT_ALLOWED");
+  const secretString=JSON.stringify(value);
+  if(Buffer.byteLength(secretString)>64*1024) throw new AppError("Connector secret is too large",413,"SECRET_TOO_LARGE");
+  try{
+    await secretsManagerRequest("CreateSecret",{Name:id,SecretString:secretString});
+  }catch(error){
+    if(!(error instanceof AppError)||error.code!=="SECRET_ALREADY_EXISTS") throw error;
+    await secretsManagerRequest("PutSecretValue",{SecretId:id,SecretString:secretString});
+  }
+  return `secretsmanager:${id}`;
+}
+
+
+export async function storeSecretReference(reference:string,value:Record<string,unknown>):Promise<void>{
+  const ref=String(reference||"").trim();
+  if(!ref.startsWith("secretsmanager:")) throw new AppError("Connector secret is not writable through this provider",503,"SECRET_REFERENCE_NOT_WRITABLE");
+  const spec=ref.slice("secretsmanager:".length);
+  const hashIndex=spec.lastIndexOf("#");
+  if(hashIndex>=0) throw new AppError("Cannot overwrite a field-scoped secret reference",503,"SECRET_REFERENCE_NOT_WRITABLE");
+  const secretId=spec.trim();
+  await storeSecretJson(secretId,value);
 }

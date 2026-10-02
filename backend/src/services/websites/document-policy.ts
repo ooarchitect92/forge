@@ -1,4 +1,5 @@
 import { AppError } from "../../utils/app-error.js";
+import { isCanonicalSiteDocument, validateSiteDocument } from "../../domain/site-document.js";
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
@@ -88,6 +89,8 @@ export function preservePublishingAuthority(current: JsonObject, incoming: JsonO
 }
 /** Validate structure and stable identifiers independently of the renderer. */
 export function validateDocumentTree(document: JsonObject): void {
+  // Canonical v1 documents receive strict domain validation; legacy editorData remains compatible.
+  if (isCanonicalSiteDocument(document)) validateSiteDocument(document);
   const ids = new Set<string>();
   let elements = 0;
   const visit = (items: JsonValue | undefined, depth = 0) => {
