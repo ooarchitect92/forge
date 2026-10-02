@@ -25,19 +25,21 @@ export default function SiteDocumentControlCenter() {
   const [error,setError] = useState("");
   const [figmaKey,setFigmaKey] = useState("");
   const [figmaConnected,setFigmaConnected] = useState<boolean|null>(null);
+  const [figmaSubscriptions,setFigmaSubscriptions] = useState<Array<{id:string;fileKey:string;eventType:string;status:string;lastEventAt?:string|null;createdAt:string}>>([]);
+  const [figmaEvents,setFigmaEvents] = useState<Array<{id:string;subscriptionId:string;eventType:string;fileKey:string;summary:Record<string,unknown>;receivedAt:string}>>([]);
   const [figmaPreview,setFigmaPreview] = useState<{fileName:string;version:string;warnings:string[];commands:SiteCommand[];conflicts:Array<{kind:string;externalId:string;localId:string;reason:string}>}|null>(null);
   const [tokenPushPreview,setTokenPushPreview] = useState<{createCount:number;updateCount:number;skipCount:number;warnings:string[];actions:Array<{tokenId:string;tokenName:string;action:"CREATE"|"UPDATE"|"SKIP";reason?:string}>}|null>(null);
 
   const refresh = useCallback(async () => {
     setError("");
-    const [document,revs,metricResult,figmaStatus] = await Promise.all([client.get(), client.revisions(), client.metrics().catch(()=>null),client.figmaConnectionStatus().catch(()=>null)]);
-    setModel(document); setRevisions(revs); if(metricResult)setMetrics(metricResult.metrics); if(figmaStatus)setFigmaConnected(figmaStatus.connected);
+    const [document,revs,metricResult,figmaStatus,webhooks,events] = await Promise.all([client.get(), client.revisions(), client.metrics().catch(()=>null),client.figmaConnectionStatus().catch(()=>null),client.figmaWebhooks().catch(()=>null),client.figmaWebhookEvents().catch(()=>null)]);
+    setModel(document); setRevisions(revs); if(metricResult)setMetrics(metricResult.metrics); if(figmaStatus)setFigmaConnected(figmaStatus.connected); if(webhooks)setFigmaSubscriptions(webhooks.subscriptions); if(events)setFigmaEvents(events.events);
   },[client]);
 
   useEffect(() => {
     const controller=new AbortController(); setLoading(true);
-    Promise.all([client.get(controller.signal),client.revisions(),client.metrics().catch(()=>null),client.figmaConnectionStatus().catch(()=>null)])
-      .then(([document,revs,metricResult,figmaStatus])=>{ if(!controller.signal.aborted){setModel(document);setRevisions(revs);if(metricResult)setMetrics(metricResult.metrics);if(figmaStatus)setFigmaConnected(figmaStatus.connected);} })
+    Promise.all([client.get(controller.signal),client.revisions(),client.metrics().catch(()=>null),client.figmaConnectionStatus().catch(()=>null),client.figmaWebhooks().catch(()=>null),client.figmaWebhookEvents().catch(()=>null)])
+      .then(([document,revs,metricResult,figmaStatus,webhooks,events])=>{ if(!controller.signal.aborted){setModel(document);setRevisions(revs);if(metricResult)setMetrics(metricResult.metrics);if(figmaStatus)setFigmaConnected(figmaStatus.connected);if(webhooks)setFigmaSubscriptions(webhooks.subscriptions);if(events)setFigmaEvents(events.events);} })
       .catch(failure=>{if(!controller.signal.aborted)setError(errorMessage(failure));})
       .finally(()=>{if(!controller.signal.aborted)setLoading(false);});
     return ()=>controller.abort();
@@ -67,7 +69,30 @@ export default function SiteDocumentControlCenter() {
     try{await client.figmaSync(figmaKey.trim(),model.revision,conflictPolicy);setFigmaPreview(null);await refresh();}
     catch(failure){setError(errorMessage(failure));}finally{setBusy(false);}
   }
-  async function previewTokenPush(){
+  async function watchFigmaFile(){
+    if(!figmaKey.trim())return;
+    setBusy(true);setError("");
+    try{await client.createFigmaWebhook(figmaKey.trim());await refresh();}
+    catch(failure){setError(errorMessage(failure));}finally{setBusy(false);}
+  }
+  async function removeFigmaWatch(subscriptionId:string){
+    if(!window.confirm("Stop watching this Figma file for updates?"))return;
+    setBusy(true);setError("");
+    try{await client.deleteFigmaWebhook(subscriptionId);await refresh();}
+    catch(failure){setError(errorMessage(failure));}finally{setBusy(false);}
+  }
+  async function dismissFigmaUpdate(eventId:string){
+    setBusy(true);setError("");
+    try{await client.dismissFigmaWebhookEvent(eventId);await refresh();}
+    catch(failure){setError(errorMessage(failure));}finally{setBusy(false);}
+  }
+  async function reviewFigmaUpdate(fileKey:string){
+    setFigmaKey(fileKey);
+    setBusy(true);setError("");setFigmaPreview(null);
+    try{const proposal=await client.figmaPreview(fileKey);setFigmaPreview(proposal);}
+    catch(failure){setError(errorMessage(failure));}finally{setBusy(false);}
+  }
+    async function previewTokenPush(){
     if(!figmaKey.trim()) return;
     setBusy(true);setError("");setTokenPushPreview(null);
     try{setTokenPushPreview(await client.figmaTokenPushPreview(figmaKey.trim()));}
@@ -143,6 +168,14 @@ export default function SiteDocumentControlCenter() {
             <button disabled={busy||!figmaKey.trim()||!model?.persisted||figmaConnected!==true} onClick={previewTokenPush} className="rounded-lg border border-emerald-500/50 px-4 py-2 text-sm font-semibold text-emerald-200 disabled:opacity-40">Token push preview</button>
           </div>
           <p className="mt-2 text-xs text-slate-500">The backend expects an active organization-scoped Figma connector credential; raw tokens are not accepted by this screen.</p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button disabled={busy||figmaConnected!==true||!figmaKey.trim()||figmaSubscriptions.some(item=>item.fileKey===figmaKey.trim()&&item.status==="ACTIVE")} onClick={watchFigmaFile} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-bold text-slate-200 disabled:opacity-40">Watch file updates</button>
+            {figmaSubscriptions.filter(item=>item.status!=="REVOKED").map(item=><span key={item.id} className="inline-flex items-center gap-2 rounded-full border border-slate-700 px-2 py-1 text-[11px] text-slate-300">{item.fileKey} · {item.status}<button disabled={busy} onClick={()=>removeFigmaWatch(item.id)} className="font-bold text-red-300">×</button></span>)}
+          </div>
+          {figmaEvents.length>0&&<div className="mt-4 rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-3">
+            <div className="text-xs font-bold uppercase tracking-wider text-cyan-200">Figma updates waiting for review</div>
+            {figmaEvents.slice(0,10).map(event=><div key={event.id} className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-950/60 p-2 text-xs"><div><strong>{typeof event.summary.fileName==="string"?event.summary.fileName:event.fileKey}</strong><span className="ml-2 text-slate-500">{new Date(event.receivedAt).toLocaleString()}</span></div><div className="flex gap-2"><button disabled={busy} onClick={()=>reviewFigmaUpdate(event.fileKey)} className="font-bold text-cyan-300">Review changes</button><button disabled={busy} onClick={()=>dismissFigmaUpdate(event.id)} className="font-bold text-slate-400">Dismiss</button></div></div>)}
+          </div>}
           {tokenPushPreview&&<div className="mt-5 rounded-xl border border-emerald-700/50 bg-emerald-950/20 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2"><div><div className="font-semibold">Forge → Figma design tokens</div><div className="text-xs text-slate-500">Only values representable by Figma Variables are pushed.</div></div><div className="text-xs font-bold text-emerald-300">{tokenPushPreview.createCount} create · {tokenPushPreview.updateCount} update · {tokenPushPreview.skipCount} skip</div></div>
             {tokenPushPreview.warnings.slice(0,5).map(warning=><div key={warning} className="mt-2 rounded-lg bg-amber-400/10 p-2 text-xs text-amber-200">{warning}</div>)}
