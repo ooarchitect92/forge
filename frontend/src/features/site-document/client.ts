@@ -61,6 +61,37 @@ export function createSiteDocumentClient(apiUrl:string,websiteId:string){
         await fetch(`${base}/metrics`,{credentials:"include"})
       );
     },
+    async figmaWebhooks(){
+      return response<{success:boolean;subscriptions:Array<{id:string;fileKey:string;eventType:string;status:string;lastEventAt?:string|null;createdAt:string}>}>(
+        await fetch(`${apiUrl}/api/v1/integrations/figma/websites/${encodeURIComponent(websiteId)}/webhooks`,{credentials:"include"})
+      );
+    },
+    async createFigmaWebhook(fileKey:string){
+      return response<{success:boolean;subscription:{id:string;fileKey:string;status:string}}>(
+        await fetch(`${apiUrl}/api/v1/integrations/figma/websites/${encodeURIComponent(websiteId)}/webhooks`,{
+          method:"POST",credentials:"include",headers:headers(crypto.randomUUID()),body:JSON.stringify({fileKey})
+        })
+      );
+    },
+    async deleteFigmaWebhook(subscriptionId:string){
+      return response<{success:boolean;subscription:{id:string;status:string}}>(
+        await fetch(`${apiUrl}/api/v1/integrations/figma/websites/${encodeURIComponent(websiteId)}/webhooks/${encodeURIComponent(subscriptionId)}`,{
+          method:"DELETE",credentials:"include",headers:headers(crypto.randomUUID())
+        })
+      );
+    },
+    async figmaWebhookEvents(){
+      return response<{success:boolean;events:Array<{id:string;subscriptionId:string;eventType:string;fileKey:string;summary:Record<string,unknown>;receivedAt:string}>}>(
+        await fetch(`${apiUrl}/api/v1/integrations/figma/websites/${encodeURIComponent(websiteId)}/webhook-events`,{credentials:"include"})
+      );
+    },
+    async dismissFigmaWebhookEvent(eventId:string){
+      return response<{success:boolean;event:{id:string;status:string}}>(
+        await fetch(`${apiUrl}/api/v1/integrations/figma/websites/${encodeURIComponent(websiteId)}/webhook-events/${encodeURIComponent(eventId)}/dismiss`,{
+          method:"POST",credentials:"include",headers:headers(crypto.randomUUID()),body:"{}"
+        })
+      );
+    },
     async figmaConnectionStatus(){
       return response<{success:boolean;connected:boolean;credential:{id:string;scopes:unknown;version:number}|null}>(
         await fetch(`${apiUrl}/api/v1/integrations/figma/websites/${encodeURIComponent(websiteId)}/status`,{credentials:"include"})
