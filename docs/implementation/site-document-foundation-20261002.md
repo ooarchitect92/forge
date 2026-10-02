@@ -152,6 +152,8 @@ The adapter makes migration additive rather than requiring a destructive editor 
 
 ### HTTP API
 
+New canonical frontend clients use the versioned `/api/v1` surface. Existing `/api` website aliases remain during compatibility migration.
+
 All routes are under `/api/websites/:id/site-document`.
 
 | Method | Route | Purpose |
@@ -269,6 +271,7 @@ New files:
 - `frontend/src/pages/dashboard/SiteDocumentControlCenter.tsx`
 - `frontend/src/pages/dashboard/CanonicalCmsManager.tsx`
 - `frontend/src/pages/dashboard/CanonicalDesignSystemManager.tsx`
+- `frontend/src/pages/dashboard/CanonicalExperienceManager.tsx`
 - `frontend/src/features/site-document/SiteDocumentProvider.tsx`
 
 Route:
@@ -276,6 +279,7 @@ Route:
 - `/dashboard/site-document/:websiteId`
 - `/dashboard/site-document/:websiteId/cms`
 - `/dashboard/site-document/:websiteId/design-system`
+- `/dashboard/site-document/:websiteId/experience`
 
 The control center shows:
 
@@ -289,6 +293,7 @@ The control center shows:
 - Forge → Figma token push preview/apply
 - a command-native CMS 2.0 manager for collections, fields, items and element bindings
 - a command-native design-system manager for tokens, styles and component variants
+- a command-native experience manager for interactions, forms, locale overlays, experiments and non-secret integration metadata
 - Figma OAuth connection status, webhook watches, pending update review and conflict handling
 - 24-hour SiteDocument command latency/error telemetry including average and p95
 
@@ -305,6 +310,8 @@ The existing Custom Post Types screen links into the canonical control center.
 - tenant data is protected by PostgreSQL RLS
 - Figma secrets are read from governed connector secret references
 - remote Figma responses are timeout/size bounded
+- all canonical recursive JSON objects reject `__proto__`, `prototype` and `constructor` keys before command execution
+- canonical integration configs reject inline API keys, passwords, bearer tokens, access/refresh tokens, client secrets and private keys; credentials remain in governed secret storage
 - CMS binding paths reject prototype-related keys
 - publish-generated CMS pages cannot replace editable templates
 
