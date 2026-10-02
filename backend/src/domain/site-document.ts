@@ -2,12 +2,14 @@ import { z } from "zod";
 import { AppError } from "../utils/app-error.js";
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+const RESERVED_JSON_KEYS=new Set(["__proto__","prototype","constructor"]);
+const jsonKeySchema=z.string().max(500).refine(value=>!RESERVED_JSON_KEYS.has(value),"Reserved JSON key is not allowed");
 export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
   z.null(), z.boolean(), z.number().finite(), z.string(),
   z.array(jsonValueSchema).max(20_000),
-  z.record(z.string().max(500), jsonValueSchema),
+  z.record(jsonKeySchema, jsonValueSchema),
 ]));
-export const jsonObjectSchema = z.record(z.string().max(500), jsonValueSchema);
+export const jsonObjectSchema = z.record(jsonKeySchema, jsonValueSchema);
 const id = z.string().min(1).max(200);
 
 export const siteElementSchema: z.ZodType<any> = z.lazy(() => z.object({
