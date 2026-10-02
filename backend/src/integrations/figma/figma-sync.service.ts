@@ -90,6 +90,15 @@ export async function previewFigmaSync(input:{websiteId:string;actorId:string;fi
 }
 export async function applyFigmaSync(input:{websiteId:string;actorId:string;fileKey:string;expectedRevision:number;key:string;conflictPolicy?:"abort"|"prefer-figma";webhookEventId?:string}){
   if(input.webhookEventId&&!/^[0-9a-f-]{36}$/i.test(input.webhookEventId)) throw new AppError("Figma webhook event identity is invalid",400,"FIGMA_WEBHOOK_EVENT_INVALID");
+  if(input.webhookEventId){
+    const website=await getScopedWebsite(input.websiteId,input.actorId);
+    if(!website.organizationId) throw new AppError("Website ownership migration is required",503,"TENANT_MIGRATION_REQUIRED");
+    const pending=await prisma.$transaction(async tx=>{
+      await tx.$queryRaw`SELECT set_config('app.tenant_id', ${website.organizationId}, true)`;
+      return tx.figmaWebhookEvent.findFirst({where:{id:input.webhookEventId,websiteId:input.websiteId,fileKey:input.fileKey,status:"PENDING"},select:{id:true}});
+    });
+    if(!pending) throw new AppError("Figma webhook event is no longer pending",409,"FIGMA_WEBHOOK_EVENT_STATE");
+  }
   const proposal=await previewFigmaSync(input);
   if(proposal.conflicts.length&&input.conflictPolicy!=="prefer-figma") throw new AppError("Figma synchronization has conflicts that require explicit resolution",409,"FIGMA_SYNC_CONFLICT");
   if(proposal.baseRevision!==input.expectedRevision) throw new AppError("The SiteDocument changed while Figma was loading",412,"SITE_DOCUMENT_REVISION_CONFLICT");
@@ -111,7 +120,7 @@ export async function applyFigmaSync(input:{websiteId:string;actorId:string;file
           where:{id:input.webhookEventId,websiteId:input.websiteId,fileKey:input.fileKey,status:"PENDING"},
           data:{status:"APPLIED",appliedAt:new Date(),appliedRevision:applied.revision},
         });
-        if(marked.count!==1) throw new AppError("Figma webhook event is no longer pending",409,"FIGMA_WEBHOOK_EVENT_STATE");
+        if(marked.count!==1) console.warn(JSON.stringify({event:"figma.webhook_apply_state_race",websiteId:input.websiteId,webhookEventId:input.webhookEventId,revision:applied.revision}));
       }
     });
   }
