@@ -58,3 +58,30 @@ export async function getActiveConnectorCredential(input:{organizationId:string;
     return row.rows[0]||null;
   });
 }
+
+
+export async function updateConnectorCredential(input:{
+  organizationId:string;actorId:string;credentialId:string;secretRef?:string;scopes?:string[];metadata?:Record<string,string>;
+}){
+  const ref=input.secretRef===undefined?undefined:secretReference(input.secretRef);
+  return withTenantTransaction({organizationId:input.organizationId,actorId:input.actorId},async(client)=>{
+    await requireOrganizationMembership(client,input.organizationId,input.actorId,["OWNER","ADMIN"]);
+    const current=await client.query<{id:string;provider:string;metadata:Record<string,string>}>(
+      `SELECT id,provider,metadata FROM connector_credentials WHERE id=$1::uuid AND "organizationId"=$2::uuid AND status='ACTIVE' FOR UPDATE`,
+      [input.credentialId,input.organizationId],
+    );
+    if(!current.rows[0]) throw new AppError("Connector credential not found",404,"NOT_FOUND");
+    const metadata:Record<string,string>={...(current.rows[0].metadata||{})};
+    if(input.metadata) for(const [key,value] of Object.entries(input.metadata)){
+      if(typeof value==="string"&&key.length<=100&&value.length<=1000) metadata[key]=value;
+    }
+    const scopes=Array.isArray(input.scopes)?input.scopes.filter(scope=>typeof scope==="string"&&scope.length<=100).slice(0,100):undefined;
+    const result=await client.query(
+      `UPDATE connector_credentials SET "secretRef"=coalesce($3,"secretRef"),scopes=coalesce($4::jsonb,scopes),metadata=$5::jsonb,
+        version=version+1,"updatedAt"=NOW()
+        WHERE id=$1::uuid AND "organizationId"=$2::uuid RETURNING id,provider,status,scopes,metadata,version`,
+      [input.credentialId,input.organizationId,ref??null,scopes?JSON.stringify(scopes):null,JSON.stringify(metadata)],
+    );
+    return result.rows[0];
+  });
+}
