@@ -29,6 +29,7 @@ const PlatformControlPage = lazy(() => import("./features/platform-control/Platf
 const SiteDocumentControlCenter = lazy(() => import("./pages/dashboard/SiteDocumentControlCenter"));
 const CanonicalCmsManager = lazy(() => import("./pages/dashboard/CanonicalCmsManager"));
 const CanonicalDesignSystemManager = lazy(() => import("./pages/dashboard/CanonicalDesignSystemManager"));
+const CanonicalExperienceManager = lazy(() => import("./pages/dashboard/CanonicalExperienceManager"));
 
 interface RoleRouteProps {
   allowedRoles: UserRole[];
@@ -318,6 +319,15 @@ function App() {
             element={
               <RoleRoute allowedRoles={["USER", "ADMIN", "SUPER_ADMIN"]}>
                 <CanonicalDesignSystemManager />
+              </RoleRoute>
+            }
+          />
+
+          <Route
+            path="/dashboard/site-document/:websiteId/experience"
+            element={
+              <RoleRoute allowedRoles={["USER", "ADMIN", "SUPER_ADMIN"]}>
+                <CanonicalExperienceManager />
               </RoleRoute>
             }
           />
