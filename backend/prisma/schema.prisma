@@ -1333,6 +1333,7 @@ model FigmaNodeMapping {
   externalId     String   @db.VarChar(255)
   localId        String   @db.VarChar(200)
   externalVersion String? @db.VarChar(255)
+  localHash       String? @db.VarChar(64)
   lastSyncedAt   DateTime @default(now()) @db.Timestamptz(6)
 
   @@unique([websiteId, fileKey, kind, externalId])
