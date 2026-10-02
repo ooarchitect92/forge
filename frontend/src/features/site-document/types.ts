@@ -17,6 +17,10 @@ export interface SitePage {
   id: string; name: string; slug: string; title?: string;
   elements: SiteElement[]; settings: Record<string, JsonValue>; seo?: Record<string, JsonValue>;
 }
+export interface ComponentVariant { id:string; name:string; props:Record<string,JsonValue>; styles:Record<string,JsonValue>; }
+export interface ComponentSlot { id:string; name:string; accepts:string[]; }
+export interface SiteComponent { id:string; name:string; root:SiteElement; variants:ComponentVariant[]; slots:ComponentSlot[]; }
+
 export interface DesignToken {
   id: string; name: string; category: "color"|"typography"|"spacing"|"radius"|"shadow"|"size"|"other";
   value: JsonValue; description?: string; source?: "forge"|"figma"|"stitch"|"import";
@@ -34,7 +38,7 @@ export interface SiteDocument {
   id:string; schemaVersion:number;
   site:{title:string;slug?:string;defaultLocale:string;metadata:Record<string,JsonValue>};
   pages:SitePage[];
-  components:Array<{id:string;name:string;root:SiteElement;variants:unknown[];slots:unknown[]}>;
+  components:SiteComponent[];
   styles:Array<{id:string;selector:string;properties:Record<string,JsonValue>;breakpoint?:string;state?:string}>;
   tokens:DesignToken[];
   assets:Array<{id:string;kind:string;url:string;name?:string;metadata:Record<string,JsonValue>}>;
