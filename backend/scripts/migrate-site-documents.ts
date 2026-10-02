@@ -17,10 +17,11 @@ async function candidates():Promise<Candidate[]> {
   const result:Candidate[]=[];
   let cursor:string|undefined;
   while(result.length<limit){
+    const batchTake=Math.min(250,Math.max(1,limit-result.length));
     const rows=await prisma.website.findMany({
       where:{organizationId:{not:null},workspaceId:{not:null}},
       orderBy:{id:"asc"},
-      take:Math.min(250,Math.max(1,limit-result.length)),
+      take:batchTake,
       ...(cursor?{cursor:{id:cursor},skip:1}:{}),
       select:{
         id:true,name:true,slug:true,editorData:true,documentVersion:true,organizationId:true,workspaceId:true,
@@ -37,7 +38,7 @@ async function candidates():Promise<Candidate[]> {
       if(!exists)result.push(row);
       if(result.length>=limit)break;
     }
-    if(rows.length<Math.min(250,Math.max(1,limit-result.length)))break;
+    if(rows.length<batchTake)break;
   }
   return result;
 }
