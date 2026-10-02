@@ -10,8 +10,14 @@ export class SiteDocumentApiError extends Error {
   }
 }
 async function response<T>(res:Response):Promise<T>{
-  let body:any={}; try{body=await res.json();}catch{}
-  if(!res.ok||body?.success===false) throw new SiteDocumentApiError(body?.error?.message||body?.message||"SiteDocument request failed",res.status,body?.error?.code||body?.code);
+  let body:unknown={}; try{body=await res.json();}catch{}
+  const object=body&&typeof body==="object"&&!Array.isArray(body)?body as Record<string,unknown>:{};
+  const error=object.error&&typeof object.error==="object"&&!Array.isArray(object.error)?object.error as Record<string,unknown>:{};
+  if(!res.ok||object.success===false) throw new SiteDocumentApiError(
+    typeof error.message==="string"?error.message:typeof object.message==="string"?object.message:"SiteDocument request failed",
+    res.status,
+    typeof error.code==="string"?error.code:typeof object.code==="string"?object.code:undefined
+  );
   return body as T;
 }
 function headers(key?:string):HeadersInit{
