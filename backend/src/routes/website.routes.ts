@@ -32,6 +32,8 @@ import {
   getCmsV2SnapshotHandler,
   previewFigmaSyncHandler,
   applyFigmaSyncHandler,
+  previewFigmaTokenPushHandler,
+  pushFigmaTokensHandler,
 } from "../controllers/siteDocument.controller.js";
 import {
   getMailerConfigHandler,
@@ -238,6 +240,8 @@ router.post("/:id/site-document/revisions/:revision/restore", authorizeCapabilit
 router.get("/:id/site-document/cms", authorizeCapability("VIEW"), getCmsV2SnapshotHandler);
 router.post("/:id/site-document/figma/preview", authorizeCapability("EDIT_DESIGN"), previewFigmaSyncHandler);
 router.post("/:id/site-document/figma/sync", authorizeCapability("EDIT_DESIGN"), applyFigmaSyncHandler);
+router.post("/:id/site-document/figma/tokens/push/preview", authorizeCapability("EDIT_DESIGN"), previewFigmaTokenPushHandler);
+router.post("/:id/site-document/figma/tokens/push", authorizeCapability("EDIT_DESIGN"), pushFigmaTokensHandler);
 
 // Cookie Consent (F-438)
 router.get("/:id/cookie-consent", authorizeCapability("VIEW"), getCookieConsentHandler);
