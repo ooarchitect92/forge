@@ -1344,6 +1344,24 @@ model CmsBindingV2 {
   @@map("cms_bindings_v2")
 }
 
+model FigmaOAuthState {
+  id                 String    @id @default(uuid()) @db.Uuid
+  organizationId     String    @db.Uuid
+  workspaceId        String?   @db.Uuid
+  websiteId          String    @db.Uuid
+  actorId            String    @db.Uuid
+  stateHash          String    @unique @db.VarChar(64)
+  verifierCiphertext String    @db.Text
+  scopes             Json      @default("[]")
+  expiresAt          DateTime  @db.Timestamptz(6)
+  consumedAt         DateTime? @db.Timestamptz(6)
+  createdAt          DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([organizationId, websiteId, createdAt])
+  @@index([expiresAt])
+  @@map("figma_oauth_states")
+}
+
 model FigmaNodeMapping {
   id             String   @id @default(uuid()) @db.Uuid
   websiteId      String   @db.Uuid
