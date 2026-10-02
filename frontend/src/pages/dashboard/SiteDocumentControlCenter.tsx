@@ -94,6 +94,7 @@ export default function SiteDocumentControlCenter() {
         <div className="flex gap-2">
           <Link to="/dashboard" className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold hover:bg-slate-800">Dashboard</Link>
           <Link to={`/dashboard/site-document/${websiteId}/cms`} className="rounded-lg border border-violet-500/50 px-4 py-2 text-sm font-semibold text-violet-200 hover:bg-violet-500/10">CMS 2.0</Link>
+          <Link to={`/dashboard/site-document/${websiteId}/design-system`} className="rounded-lg border border-cyan-500/50 px-4 py-2 text-sm font-semibold text-cyan-200 hover:bg-cyan-500/10">Design system</Link>
           <Link to={`/editor/${websiteId}`} className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold hover:bg-violet-500">Open editor</Link>
         </div>
       </header>
@@ -153,7 +154,7 @@ export default function SiteDocumentControlCenter() {
             <div className="flex justify-between rounded-lg bg-slate-950/60 p-3"><span className="text-slate-400">Assets</span><strong>{document?.assets.length??0}</strong></div>
             <div className="flex justify-between rounded-lg bg-slate-950/60 p-3"><span className="text-slate-400">CMS bindings</span><strong>{document?.cms.bindings.length??0}</strong></div>
           </div>
-          <Link to={`/dashboard/site-document/${websiteId}/cms`} className="mt-4 inline-flex rounded-lg border border-violet-500/40 px-3 py-2 text-xs font-bold text-violet-200">Manage canonical CMS</Link>
+          <div className="mt-4 flex flex-wrap gap-2"><Link to={`/dashboard/site-document/${websiteId}/cms`} className="inline-flex rounded-lg border border-violet-500/40 px-3 py-2 text-xs font-bold text-violet-200">Manage canonical CMS</Link><Link to={`/dashboard/site-document/${websiteId}/design-system`} className="inline-flex rounded-lg border border-cyan-500/40 px-3 py-2 text-xs font-bold text-cyan-200">Manage design system</Link></div>
         </section>
       </div>
 
