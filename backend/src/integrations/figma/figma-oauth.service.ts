@@ -3,7 +3,7 @@ import { AppError } from "../../utils/app-error.js";
 import { prisma } from "../../config/prisma.js";
 import { getScopedWebsite } from "../../services/websites/scoped-access.js";
 import { canUserAccessResource } from "../../services/permission.service.js";
-import { registerConnectorCredential, getActiveConnectorCredential } from "../../platform/integrations/connector-credentials.js";
+import { registerConnectorCredential, getActiveConnectorCredential, updateConnectorCredential } from "../../platform/integrations/connector-credentials.js";
 import { storeSecretJson } from "../../platform/secrets/secret-provider.js";
 import { encryptFigmaOAuthState, decryptFigmaOAuthState } from "./figma-oauth-vault.js";
 
@@ -208,6 +208,7 @@ export async function completeFigmaOAuth(input: { state: unknown; code: unknown;
     provider: "figma",
   });
   let credentialId = existing?.id;
+  const scopes=(pending.row.scopes as string[])||cfg.scopes;
   if (!existing) {
     const created = await registerConnectorCredential({
       organizationId,
@@ -216,10 +217,15 @@ export async function completeFigmaOAuth(input: { state: unknown; code: unknown;
       actorId: input.actorId,
       provider: "figma",
       secretRef,
-      scopes: (pending.row.scopes as string[]) || cfg.scopes,
+      scopes,
       metadata: {},
     });
     credentialId = created.id;
+  } else {
+    await updateConnectorCredential({
+      organizationId,actorId:input.actorId,credentialId:existing.id,secretRef,scopes,
+      metadata:{figmaUserId:tokens.figmaUserId??account.id??""},
+    });
   }
   await prisma.$transaction(async tx => {
     await tx.$queryRaw`SELECT set_config('app.tenant_id', ${organizationId}, true)`;
