@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth } from "../middlewares/auth.middleware.js";
 import { authorizeCapability } from "../services/permission.service.js";
+import { requireRuntimeCapability } from "../platform/control/runtime-capability.js";
 import {
   getWebsitesHandler,
   getWebsiteByIdHandler,
@@ -230,18 +231,18 @@ router.get("/:id/managed-details", authorizeCapability("VIEW"), getManagedWebsit
 router.put("/:id", authorizeCapability("EDIT"), updateWebsiteHandler);
 router.delete("/:id", authorizeCapability("DELETE"), deleteWebsiteHandler);
 
-router.get("/:id/site-document", authorizeCapability("VIEW"), getSiteDocumentHandler);
-router.post("/:id/site-document/initialize", authorizeCapability("EDIT"), initializeSiteDocumentHandler);
-router.post("/:id/site-document/commands/preview", authorizeCapability("EDIT"), previewSiteDocumentCommandsHandler);
-router.post("/:id/site-document/commands", authorizeCapability("EDIT"), applySiteDocumentCommandsHandler);
-router.get("/:id/site-document/revisions", authorizeCapability("VIEW"), listSiteDocumentRevisionsHandler);
-router.get("/:id/site-document/revisions/:revision", authorizeCapability("VIEW"), getSiteDocumentRevisionHandler);
-router.post("/:id/site-document/revisions/:revision/restore", authorizeCapability("EDIT"), restoreSiteDocumentRevisionHandler);
-router.get("/:id/site-document/cms", authorizeCapability("VIEW"), getCmsV2SnapshotHandler);
-router.post("/:id/site-document/figma/preview", authorizeCapability("EDIT_DESIGN"), previewFigmaSyncHandler);
-router.post("/:id/site-document/figma/sync", authorizeCapability("EDIT_DESIGN"), applyFigmaSyncHandler);
-router.post("/:id/site-document/figma/tokens/push/preview", authorizeCapability("EDIT_DESIGN"), previewFigmaTokenPushHandler);
-router.post("/:id/site-document/figma/tokens/push", authorizeCapability("EDIT_DESIGN"), pushFigmaTokensHandler);
+router.get("/:id/site-document", requireRuntimeCapability("site-document", { allowDegraded: true }), authorizeCapability("VIEW"), getSiteDocumentHandler);
+router.post("/:id/site-document/initialize", requireRuntimeCapability("site-document"), authorizeCapability("EDIT"), initializeSiteDocumentHandler);
+router.post("/:id/site-document/commands/preview", requireRuntimeCapability("site-document"), authorizeCapability("EDIT"), previewSiteDocumentCommandsHandler);
+router.post("/:id/site-document/commands", requireRuntimeCapability("site-document"), authorizeCapability("EDIT"), applySiteDocumentCommandsHandler);
+router.get("/:id/site-document/revisions", requireRuntimeCapability("site-document", { allowDegraded: true }), authorizeCapability("VIEW"), listSiteDocumentRevisionsHandler);
+router.get("/:id/site-document/revisions/:revision", requireRuntimeCapability("site-document", { allowDegraded: true }), authorizeCapability("VIEW"), getSiteDocumentRevisionHandler);
+router.post("/:id/site-document/revisions/:revision/restore", requireRuntimeCapability("site-document"), authorizeCapability("EDIT"), restoreSiteDocumentRevisionHandler);
+router.get("/:id/site-document/cms", requireRuntimeCapability("cms-v2", { allowDegraded: true }), authorizeCapability("VIEW"), getCmsV2SnapshotHandler);
+router.post("/:id/site-document/figma/preview", requireRuntimeCapability("figma-sync", { allowDegraded: true }), authorizeCapability("EDIT_DESIGN"), previewFigmaSyncHandler);
+router.post("/:id/site-document/figma/sync", requireRuntimeCapability("figma-sync"), authorizeCapability("EDIT_DESIGN"), applyFigmaSyncHandler);
+router.post("/:id/site-document/figma/tokens/push/preview", requireRuntimeCapability("figma-sync", { allowDegraded: true }), authorizeCapability("EDIT_DESIGN"), previewFigmaTokenPushHandler);
+router.post("/:id/site-document/figma/tokens/push", requireRuntimeCapability("figma-sync"), authorizeCapability("EDIT_DESIGN"), pushFigmaTokensHandler);
 
 // Cookie Consent (F-438)
 router.get("/:id/cookie-consent", authorizeCapability("VIEW"), getCookieConsentHandler);
