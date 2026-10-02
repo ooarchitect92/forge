@@ -12,6 +12,7 @@ import {
   ensureSiteDocumentState, legacyMirror, setSiteDocumentTenant, siteDocumentFromLegacy,
   syncCmsProjection, syncSiteDocumentAfterLegacySave,
 } from "./site-document-storage.js";
+import { recordSiteDocumentMetric } from "./site-document-metrics.js";
 
 export type SiteDocumentSource = "USER" | "AI" | "FIGMA" | "STITCH" | "RESTORE" | "MIGRATION";
 
@@ -84,20 +85,28 @@ export async function initializeSiteDocument(websiteId: string, actorId: string,
 }
 
 export async function previewSiteDocumentCommands(websiteId: string, actorId: string, commandsInput: unknown) {
+  const started = Date.now();
   const commands = parseSiteCommands(commandsInput);
-  return prisma.$transaction(async tx => {
-    const scope = await authorizeWebsiteDocumentWrite(tx, websiteId, actorId);
-    authorizeCommands(commands, scope.can);
-    const state = await ensureSiteDocumentState(tx, scope.website, actorId);
-    if (state.revision !== scope.website.documentVersion) {
-      await syncSiteDocumentAfterLegacySave(tx, scope.website, actorId);
-    }
-    const currentRow = await tx.siteDocumentState.findUniqueOrThrow({ where: { websiteId } });
-    const current = validateSiteDocument(currentRow.document);
-    const proposed = applySiteCommands(current, commands);
-    await enforceLegacyDocumentPolicy(tx, scope.website, actorId, proposed, scope.can);
-    return { websiteId, baseRevision: currentRow.revision, schemaVersion: proposed.schemaVersion, commands, proposed };
-  });
+  try {
+    const result = await prisma.$transaction(async tx => {
+      const scope = await authorizeWebsiteDocumentWrite(tx, websiteId, actorId);
+      authorizeCommands(commands, scope.can);
+      const state = await ensureSiteDocumentState(tx, scope.website, actorId);
+      if (state.revision !== scope.website.documentVersion) {
+        await syncSiteDocumentAfterLegacySave(tx, scope.website, actorId);
+      }
+      const currentRow = await tx.siteDocumentState.findUniqueOrThrow({ where: { websiteId } });
+      const current = validateSiteDocument(currentRow.document);
+      const proposed = applySiteCommands(current, commands);
+      await enforceLegacyDocumentPolicy(tx, scope.website, actorId, proposed, scope.can);
+      return { websiteId, baseRevision: currentRow.revision, schemaVersion: proposed.schemaVersion, commands, proposed };
+    });
+    void recordSiteDocumentMetric({websiteId,actorId,operation:"COMMAND_PREVIEW",source:"USER",durationMs:Date.now()-started,commandCount:commands.length,status:"SUCCESS"});
+    return result;
+  } catch (error) {
+    void recordSiteDocumentMetric({websiteId,actorId,operation:"COMMAND_PREVIEW",source:"USER",durationMs:Date.now()-started,commandCount:commands.length,status:"ERROR",errorCode:(error as {code?:string})?.code??"UNKNOWN"});
+    throw error;
+  }
 }
 
 export async function applySiteDocumentCommands(input: {
@@ -106,7 +115,9 @@ export async function applySiteDocumentCommands(input: {
   const revision = expectedRevision(input.expectedRevision);
   const commands = parseSiteCommands(input.commands);
   const source = input.source ?? "USER";
-  return workspaceCommand({
+  const started = Date.now();
+  try {
+    const result = await workspaceCommand({
     actorId: input.actorId, operation: "SITE_DOCUMENT_COMMANDS_APPLIED", key: input.key,
     payload: { websiteId: input.websiteId, expectedRevision: revision, source, commands },
     authorize: async tx => {
@@ -150,6 +161,19 @@ export async function applySiteDocumentCommands(input: {
       };
     },
   });
+    void recordSiteDocumentMetric({
+      websiteId:input.websiteId,actorId:input.actorId,operation:"COMMAND_APPLY",source,
+      durationMs:Date.now()-started,commandCount:commands.length,status:"SUCCESS",idempotencyKey:input.key,
+    });
+    return result;
+  } catch (error) {
+    void recordSiteDocumentMetric({
+      websiteId:input.websiteId,actorId:input.actorId,operation:"COMMAND_APPLY",source,
+      durationMs:Date.now()-started,commandCount:commands.length,status:"ERROR",
+      errorCode:(error as {code?:string})?.code??"UNKNOWN",idempotencyKey:input.key,
+    });
+    throw error;
+  }
 }
 
 export async function listSiteDocumentRevisions(websiteId: string, actorId: string, limit = 50) {
