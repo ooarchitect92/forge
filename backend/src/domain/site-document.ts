@@ -66,10 +66,18 @@ export const designTokenSchema = z.object({
   source: z.enum(["forge", "figma", "stitch", "import"]).optional(),
 }).strict();
 
+const persistedAssetUrl = z.string().min(1).max(4096).refine(value => {
+  if (value.startsWith("/") && !value.startsWith("//")) return !/[\u0000-\u001f\\]/.test(value);
+  try {
+    const parsed = new URL(value);
+    return ["https:", "http:"].includes(parsed.protocol) && !parsed.username && !parsed.password;
+  } catch { return false; }
+}, "Asset URL must be an HTTP(S) URL or a root-relative path");
+
 export const assetSchema = z.object({
   id,
   kind: z.enum(["image", "video", "file", "font", "other"]),
-  url: z.string().min(1).max(4096),
+  url: persistedAssetUrl,
   name: z.string().max(500).optional(),
   metadata: jsonObjectSchema.default({}),
 }).strict();
