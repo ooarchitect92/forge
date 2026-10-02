@@ -88,7 +88,8 @@ export async function previewFigmaSync(input:{websiteId:string;actorId:string;fi
   if(conflicts.length) warnings.push(`${conflicts.length} mapped item(s) changed on both sides. Review conflicts before applying Figma-preferred resolution.`);
   return {...proposal,warnings,conflicts,baseRevision:current.revision};
 }
-export async function applyFigmaSync(input:{websiteId:string;actorId:string;fileKey:string;expectedRevision:number;key:string;conflictPolicy?:"abort"|"prefer-figma"}){
+export async function applyFigmaSync(input:{websiteId:string;actorId:string;fileKey:string;expectedRevision:number;key:string;conflictPolicy?:"abort"|"prefer-figma";webhookEventId?:string}){
+  if(input.webhookEventId&&!/^[0-9a-f-]{36}$/i.test(input.webhookEventId)) throw new AppError("Figma webhook event identity is invalid",400,"FIGMA_WEBHOOK_EVENT_INVALID");
   const proposal=await previewFigmaSync(input);
   if(proposal.conflicts.length&&input.conflictPolicy!=="prefer-figma") throw new AppError("Figma synchronization has conflicts that require explicit resolution",409,"FIGMA_SYNC_CONFLICT");
   if(proposal.baseRevision!==input.expectedRevision) throw new AppError("The SiteDocument changed while Figma was loading",412,"SITE_DOCUMENT_REVISION_CONFLICT");
@@ -104,6 +105,13 @@ export async function applyFigmaSync(input:{websiteId:string;actorId:string;file
           update:{localId:mapping.localId,externalVersion:proposal.version,localHash:hash,lastSyncedAt:new Date()},
           create:{websiteId:input.websiteId,organizationId:website.organizationId!,workspaceId:website.workspaceId,fileKey:input.fileKey,kind:mapping.kind,externalId:mapping.externalId,localId:mapping.localId,externalVersion:proposal.version,localHash:hash},
         });
+      }
+      if(input.webhookEventId){
+        const marked=await tx.figmaWebhookEvent.updateMany({
+          where:{id:input.webhookEventId,websiteId:input.websiteId,fileKey:input.fileKey,status:"PENDING"},
+          data:{status:"APPLIED",appliedAt:new Date(),appliedRevision:applied.revision},
+        });
+        if(marked.count!==1) throw new AppError("Figma webhook event is no longer pending",409,"FIGMA_WEBHOOK_EVENT_STATE");
       }
     });
   }
