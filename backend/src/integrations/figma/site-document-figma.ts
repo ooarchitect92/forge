@@ -172,13 +172,33 @@ export function figmaToSiteCommands(input:{fileKey:string;file:FigmaFileSnapshot
     if(component.id)addComponent(component.id,String(component.name||"Component"),component,[]);
   }
 
+  const importSlugs=new Set<string>();
+  const deletedPageIds=new Set<string>();
   pages(input.file).forEach((frame,index)=>{
     const external=String(frame.id||`page-${index}`);
     const pageId=stable(input.fileKey,external,"figma-page");
+    const name=String(frame.name||`Figma Page ${index+1}`).slice(0,255);
+    const preferred=slug(name,index);
+    let pageSlug=preferred;
+    let suffix=2;
+    while(importSlugs.has(pageSlug)){
+      pageSlug=preferred==="/"?`/figma-page-${index+1}`:`${preferred}-${suffix++}`;
+    }
+    importSlugs.add(pageSlug);
     mappings.push({kind:"PAGE",externalId:external,localId:pageId});
-    if(input.current.pages.some(page=>page.id===pageId))commands.push({type:"page.delete",pageId});
+
+    // A full Figma page import is a reviewed replacement proposal. Remove the
+    // previous canonical page occupying either the stable external identity or
+    // the route before creating the replacement. This handles the initial blank
+    // Forge home page ("/") without producing an impossible duplicate-slug batch.
+    for(const existing of input.current.pages){
+      if((existing.id===pageId||existing.slug===pageSlug)&&!deletedPageIds.has(existing.id)){
+        commands.push({type:"page.delete",pageId:existing.id});
+        deletedPageIds.add(existing.id);
+      }
+    }
     commands.push({type:"page.create",page:{
-      id:pageId,name:String(frame.name||`Figma Page ${index+1}`).slice(0,255),slug:slug(String(frame.name||""),index),
+      id:pageId,name,slug:pageSlug,
       elements:(frame.children||[]).map(child=>toElement(input.fileKey,child,mappings,componentOwners)),
       settings:{figmaFileKey:input.fileKey,figmaNodeId:external,figmaVersion:String(input.file.version||"")},
     }});
