@@ -24,19 +24,20 @@ export default function SiteDocumentControlCenter() {
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState("");
   const [figmaKey,setFigmaKey] = useState("");
+  const [figmaConnected,setFigmaConnected] = useState<boolean|null>(null);
   const [figmaPreview,setFigmaPreview] = useState<{fileName:string;version:string;warnings:string[];commands:SiteCommand[];conflicts:Array<{kind:string;externalId:string;localId:string;reason:string}>}|null>(null);
   const [tokenPushPreview,setTokenPushPreview] = useState<{createCount:number;updateCount:number;skipCount:number;warnings:string[];actions:Array<{tokenId:string;tokenName:string;action:"CREATE"|"UPDATE"|"SKIP";reason?:string}>}|null>(null);
 
   const refresh = useCallback(async () => {
     setError("");
-    const [document,revs,metricResult] = await Promise.all([client.get(), client.revisions(), client.metrics().catch(()=>null)]);
-    setModel(document); setRevisions(revs); if(metricResult)setMetrics(metricResult.metrics);
+    const [document,revs,metricResult,figmaStatus] = await Promise.all([client.get(), client.revisions(), client.metrics().catch(()=>null),client.figmaConnectionStatus().catch(()=>null)]);
+    setModel(document); setRevisions(revs); if(metricResult)setMetrics(metricResult.metrics); if(figmaStatus)setFigmaConnected(figmaStatus.connected);
   },[client]);
 
   useEffect(() => {
     const controller=new AbortController(); setLoading(true);
-    Promise.all([client.get(controller.signal),client.revisions(),client.metrics().catch(()=>null)])
-      .then(([document,revs,metricResult])=>{ if(!controller.signal.aborted){setModel(document);setRevisions(revs);if(metricResult)setMetrics(metricResult.metrics);} })
+    Promise.all([client.get(controller.signal),client.revisions(),client.metrics().catch(()=>null),client.figmaConnectionStatus().catch(()=>null)])
+      .then(([document,revs,metricResult,figmaStatus])=>{ if(!controller.signal.aborted){setModel(document);setRevisions(revs);if(metricResult)setMetrics(metricResult.metrics);if(figmaStatus)setFigmaConnected(figmaStatus.connected);} })
       .catch(failure=>{if(!controller.signal.aborted)setError(errorMessage(failure));})
       .finally(()=>{if(!controller.signal.aborted)setLoading(false);});
     return ()=>controller.abort();
@@ -46,7 +47,14 @@ export default function SiteDocumentControlCenter() {
     setBusy(true);setError("");
     try{await client.initialize();await refresh();}catch(failure){setError(errorMessage(failure));}finally{setBusy(false);}
   }
-  async function previewFigma() {
+  async function connectFigma(){
+    setBusy(true);setError("");
+    try{
+      const result=await client.figmaOAuthStart();
+      window.location.assign(result.authorizationUrl);
+    }catch(failure){setError(errorMessage(failure));setBusy(false);}
+  }
+    async function previewFigma() {
     if(!figmaKey.trim()) return;
     setBusy(true);setError("");setFigmaPreview(null);
     try{const proposal=await client.figmaPreview(figmaKey.trim());setFigmaPreview(proposal);}
@@ -127,12 +135,12 @@ export default function SiteDocumentControlCenter() {
       </section>}
       <div className="mt-8 grid gap-6 lg:grid-cols-[1.2fr_.8fr]">
         <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
-          <div className="flex items-center justify-between"><div><h2 className="text-lg font-bold">Figma sync</h2><p className="mt-1 text-sm text-slate-400">Preview a governed Figma import as typed commands before applying it.</p></div><span className="rounded-full bg-emerald-400/10 px-2 py-1 text-xs font-semibold text-emerald-300">Review first</span></div>
+          <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-bold">Figma sync</h2><p className="mt-1 text-sm text-slate-400">Preview a governed Figma import as typed commands before applying it.</p></div><div className="flex items-center gap-2"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${figmaConnected?"bg-emerald-400/10 text-emerald-300":"bg-amber-400/10 text-amber-200"}`}>{figmaConnected?"Connected":"Not connected"}</span>{figmaConnected!==true&&<button disabled={busy} onClick={connectFigma} className="rounded-lg border border-emerald-500/50 px-3 py-1.5 text-xs font-bold text-emerald-200 disabled:opacity-40">Connect Figma</button>}</div></div>
           <label className="mt-5 block text-xs font-semibold uppercase tracking-wider text-slate-400">Figma file key</label>
           <div className="mt-2 flex gap-2">
             <input value={figmaKey} onChange={event=>setFigmaKey(event.target.value)} placeholder="AbCdEf123…" className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-violet-500"/>
-            <button disabled={busy||!figmaKey.trim()} onClick={previewFigma} className="rounded-lg border border-violet-500/50 px-4 py-2 text-sm font-semibold text-violet-200 disabled:opacity-40">Import preview</button>
-            <button disabled={busy||!figmaKey.trim()||!model?.persisted} onClick={previewTokenPush} className="rounded-lg border border-emerald-500/50 px-4 py-2 text-sm font-semibold text-emerald-200 disabled:opacity-40">Token push preview</button>
+            <button disabled={busy||!figmaKey.trim()||figmaConnected!==true} onClick={previewFigma} className="rounded-lg border border-violet-500/50 px-4 py-2 text-sm font-semibold text-violet-200 disabled:opacity-40">Import preview</button>
+            <button disabled={busy||!figmaKey.trim()||!model?.persisted||figmaConnected!==true} onClick={previewTokenPush} className="rounded-lg border border-emerald-500/50 px-4 py-2 text-sm font-semibold text-emerald-200 disabled:opacity-40">Token push preview</button>
           </div>
           <p className="mt-2 text-xs text-slate-500">The backend expects an active organization-scoped Figma connector credential; raw tokens are not accepted by this screen.</p>
           {tokenPushPreview&&<div className="mt-5 rounded-xl border border-emerald-700/50 bg-emerald-950/20 p-4">
