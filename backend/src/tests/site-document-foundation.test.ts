@@ -195,3 +195,24 @@ test("CMS bindings resolve only the selected item and publish expands template p
   assert.equal(published.pages[0]?.elements[0]?.content, "Article A");
   assert.equal(published.canonicalCms.items.length, 2);
 });
+
+
+test("command processor covers component variants, interactions and forms", () => {
+  const value=applySiteCommands(document(),[
+    {type:"component.create",component:{id:"card",name:"Card",root:{id:"card-root",type:"container",props:{},styles:{},children:[]},variants:[],slots:[]}},
+    {type:"component.variant.set",componentId:"card",variant:{id:"featured",name:"Featured",props:{featured:true},styles:{borderWidth:2}}},
+    {type:"interaction.set",interaction:{id:"reveal",elementId:"hero",trigger:"scroll",action:"animate",config:{preset:"fade-up"}}},
+    {type:"form.set",form:{id:"lead-form",name:"Lead form",fields:[{name:"email",type:"email"}],actions:[{type:"store"}],settings:{}}},
+  ]);
+  assert.equal(value.components[0]?.variants[0]?.id,"featured");
+  assert.equal(value.interactions[0]?.action,"animate");
+  assert.equal(value.forms[0]?.name,"Lead form");
+  const cleaned=applySiteCommands(value,[
+    {type:"component.variant.delete",componentId:"card",variantId:"featured"},
+    {type:"interaction.delete",interactionId:"reveal"},
+    {type:"form.delete",formId:"lead-form"},
+  ]);
+  assert.equal(cleaned.components[0]?.variants.length,0);
+  assert.equal(cleaned.interactions.length,0);
+  assert.equal(cleaned.forms.length,0);
+});
