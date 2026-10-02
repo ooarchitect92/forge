@@ -28,6 +28,7 @@ export default function SiteDocumentControlCenter() {
   const [figmaSubscriptions,setFigmaSubscriptions] = useState<Array<{id:string;fileKey:string;eventType:string;status:string;lastEventAt?:string|null;createdAt:string}>>([]);
   const [figmaEvents,setFigmaEvents] = useState<Array<{id:string;subscriptionId:string;eventType:string;fileKey:string;summary:Record<string,unknown>;receivedAt:string}>>([]);
   const [figmaPreview,setFigmaPreview] = useState<{fileName:string;version:string;warnings:string[];commands:SiteCommand[];conflicts:Array<{kind:string;externalId:string;localId:string;reason:string}>}|null>(null);
+  const [reviewedWebhookEventId,setReviewedWebhookEventId] = useState<string|undefined>();
   const [tokenPushPreview,setTokenPushPreview] = useState<{createCount:number;updateCount:number;skipCount:number;warnings:string[];actions:Array<{tokenId:string;tokenName:string;action:"CREATE"|"UPDATE"|"SKIP";reason?:string}>}|null>(null);
 
   const refresh = useCallback(async () => {
@@ -59,14 +60,14 @@ export default function SiteDocumentControlCenter() {
     async function previewFigma() {
     if(!figmaKey.trim()) return;
     setBusy(true);setError("");setFigmaPreview(null);
-    try{const proposal=await client.figmaPreview(figmaKey.trim());setFigmaPreview(proposal);}
+    try{const proposal=await client.figmaPreview(figmaKey.trim());setReviewedWebhookEventId(undefined);setFigmaPreview(proposal);}
     catch(failure){setError(errorMessage(failure));}finally{setBusy(false);}
   }
   async function applyFigma(conflictPolicy:"abort"|"prefer-figma"="abort") {
     if(!model||!figmaKey.trim()) return;
     if(conflictPolicy==="prefer-figma"&&!window.confirm("Conflicts exist. Apply the reviewed Figma version over the conflicting Forge mappings?")) return;
     setBusy(true);setError("");
-    try{await client.figmaSync(figmaKey.trim(),model.revision,conflictPolicy);setFigmaPreview(null);await refresh();}
+    try{await client.figmaSync(figmaKey.trim(),model.revision,conflictPolicy,reviewedWebhookEventId);setFigmaPreview(null);setReviewedWebhookEventId(undefined);await refresh();}
     catch(failure){setError(errorMessage(failure));}finally{setBusy(false);}
   }
   async function watchFigmaFile(){
@@ -86,8 +87,9 @@ export default function SiteDocumentControlCenter() {
     try{await client.dismissFigmaWebhookEvent(eventId);await refresh();}
     catch(failure){setError(errorMessage(failure));}finally{setBusy(false);}
   }
-  async function reviewFigmaUpdate(fileKey:string){
+  async function reviewFigmaUpdate(fileKey:string,eventId:string){
     setFigmaKey(fileKey);
+    setReviewedWebhookEventId(eventId);
     setBusy(true);setError("");setFigmaPreview(null);
     try{const proposal=await client.figmaPreview(fileKey);setFigmaPreview(proposal);}
     catch(failure){setError(errorMessage(failure));}finally{setBusy(false);}
@@ -174,7 +176,7 @@ export default function SiteDocumentControlCenter() {
           </div>
           {figmaEvents.length>0&&<div className="mt-4 rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-3">
             <div className="text-xs font-bold uppercase tracking-wider text-cyan-200">Figma updates waiting for review</div>
-            {figmaEvents.slice(0,10).map(event=><div key={event.id} className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-950/60 p-2 text-xs"><div><strong>{typeof event.summary.fileName==="string"?event.summary.fileName:event.fileKey}</strong><span className="ml-2 text-slate-500">{new Date(event.receivedAt).toLocaleString()}</span></div><div className="flex gap-2"><button disabled={busy} onClick={()=>reviewFigmaUpdate(event.fileKey)} className="font-bold text-cyan-300">Review changes</button><button disabled={busy} onClick={()=>dismissFigmaUpdate(event.id)} className="font-bold text-slate-400">Dismiss</button></div></div>)}
+            {figmaEvents.slice(0,10).map(event=><div key={event.id} className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-950/60 p-2 text-xs"><div><strong>{typeof event.summary.fileName==="string"?event.summary.fileName:event.fileKey}</strong><span className="ml-2 text-slate-500">{new Date(event.receivedAt).toLocaleString()}</span></div><div className="flex gap-2"><button disabled={busy} onClick={()=>reviewFigmaUpdate(event.fileKey,event.id)} className="font-bold text-cyan-300">Review changes</button><button disabled={busy} onClick={()=>dismissFigmaUpdate(event.id)} className="font-bold text-slate-400">Dismiss</button></div></div>)}
           </div>}
           {tokenPushPreview&&<div className="mt-5 rounded-xl border border-emerald-700/50 bg-emerald-950/20 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2"><div><div className="font-semibold">Forge → Figma design tokens</div><div className="text-xs text-slate-500">Only values representable by Figma Variables are pushed.</div></div><div className="text-xs font-bold text-emerald-300">{tokenPushPreview.createCount} create · {tokenPushPreview.updateCount} update · {tokenPushPreview.skipCount} skip</div></div>
