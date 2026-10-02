@@ -2,7 +2,7 @@ import { z } from "zod";
 import { AppError } from "../utils/app-error.js";
 import {
   assetSchema, cmsBindingSchema, collectionDefSchema, collectionFieldSchema, collectionItemSchema,
-  componentDefSchema, designTokenSchema, experimentSchema, integrationSchema, jsonObjectSchema,
+  componentDefSchema, componentVariantSchema, designTokenSchema, experimentSchema, formSchema, integrationSchema, interactionSchema, jsonObjectSchema,
   jsonValueSchema, localeOverlaySchema, pageNodeSchema, siteElementSchema, styleRuleSchema,
   validateSiteDocument, type SiteDocument, type SiteElement,
 } from "./site-document.js";
@@ -22,6 +22,9 @@ export const siteCommandSchema = z.discriminatedUnion("type", [
 
   z.object({ type: z.literal("component.create"), component: componentDefSchema }).strict(),
   z.object({ type: z.literal("component.delete"), componentId: id }).strict(),
+  z.object({ type: z.literal("component.update"), componentId: id, patch: z.object({ name: z.string().min(1).max(255).optional(), root: siteElementSchema.optional(), slots: componentDefSchema.shape.slots.optional() }).strict() }).strict(),
+  z.object({ type: z.literal("component.variant.set"), componentId: id, variant: componentVariantSchema }).strict(),
+  z.object({ type: z.literal("component.variant.delete"), componentId: id, variantId: id }).strict(),
   z.object({ type: z.literal("component.extract"), pageId: id, elementId: id, componentId: id, name: z.string().min(1).max(255) }).strict(),
 
   z.object({ type: z.literal("token.set"), token: designTokenSchema }).strict(),
@@ -42,6 +45,11 @@ export const siteCommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("cms.item.delete"), itemId: id }).strict(),
   z.object({ type: z.literal("cms.field.bind"), binding: cmsBindingSchema }).strict(),
   z.object({ type: z.literal("cms.field.unbind"), bindingId: id }).strict(),
+
+  z.object({ type: z.literal("interaction.set"), interaction: interactionSchema }).strict(),
+  z.object({ type: z.literal("interaction.delete"), interactionId: id }).strict(),
+  z.object({ type: z.literal("form.set"), form: formSchema }).strict(),
+  z.object({ type: z.literal("form.delete"), formId: id }).strict(),
 
   z.object({ type: z.literal("locale.add"), locale: localeOverlaySchema }).strict(),
   z.object({ type: z.literal("locale.update"), localeId: id, values: jsonObjectSchema }).strict(),
@@ -168,6 +176,21 @@ export function applySiteCommands(current: SiteDocument, commandsInput: unknown)
     if (command.type === "component.delete") {
       deleteById(next.components, command.componentId, "Component"); continue;
     }
+    if (command.type === "component.update") {
+      const component=next.components.find(value=>value.id===command.componentId);
+      if(!component) throw new AppError("Component was not found",422,"SITE_COMMAND_TARGET_NOT_FOUND");
+      Object.assign(component,clone(command.patch)); continue;
+    }
+    if (command.type === "component.variant.set") {
+      const component=next.components.find(value=>value.id===command.componentId);
+      if(!component) throw new AppError("Component was not found",422,"SITE_COMMAND_TARGET_NOT_FOUND");
+      updateById(component.variants,command.variant); continue;
+    }
+    if (command.type === "component.variant.delete") {
+      const component=next.components.find(value=>value.id===command.componentId);
+      if(!component) throw new AppError("Component was not found",422,"SITE_COMMAND_TARGET_NOT_FOUND");
+      deleteById(component.variants,command.variantId,"Component variant"); continue;
+    }
     if (command.type === "component.extract") {
       const page = next.pages.find(candidate => candidate.id === command.pageId);
       const element = page ? findElement(page.elements, command.elementId) : undefined;
@@ -231,6 +254,11 @@ export function applySiteCommands(current: SiteDocument, commandsInput: unknown)
     if (command.type === "cms.item.delete") { deleteById(next.cms.items, command.itemId, "CMS item"); continue; }
     if (command.type === "cms.field.bind") { updateById(next.cms.bindings, command.binding); continue; }
     if (command.type === "cms.field.unbind") { deleteById(next.cms.bindings, command.bindingId, "CMS binding"); continue; }
+
+    if (command.type === "interaction.set") { updateById(next.interactions,command.interaction); continue; }
+    if (command.type === "interaction.delete") { deleteById(next.interactions,command.interactionId,"Interaction"); continue; }
+    if (command.type === "form.set") { updateById(next.forms,command.form); continue; }
+    if (command.type === "form.delete") { deleteById(next.forms,command.formId,"Form"); continue; }
 
     if (command.type === "locale.add") { updateById(next.locales, command.locale); continue; }
     if (command.type === "locale.update") {
