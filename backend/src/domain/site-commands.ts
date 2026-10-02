@@ -4,7 +4,7 @@ import {
   assetSchema, cmsBindingSchema, collectionDefSchema, collectionFieldSchema, collectionItemSchema,
   componentDefSchema, componentVariantSchema, designTokenSchema, experimentSchema, formSchema, integrationSchema, interactionSchema, jsonObjectSchema,
   jsonValueSchema, localeOverlaySchema, pageNodeSchema, siteElementSchema, styleRuleSchema,
-  validateSiteDocument, type SiteDocument, type SiteElement,
+  assertSafeJsonKeys, validateSiteDocument, type SiteDocument, type SiteElement,
 } from "./site-document.js";
 
 const id = z.string().min(1).max(200);
@@ -111,6 +111,7 @@ function deleteById<T extends { id: string }>(items: T[], value: string, label: 
 }
 
 export function parseSiteCommands(input: unknown): SiteCommand[] {
+  assertSafeJsonKeys(input,"commands");
   const parsed = z.array(siteCommandSchema).min(1).max(500).safeParse(input);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
