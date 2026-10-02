@@ -3,7 +3,8 @@ import type { ProposedDocument } from "./DesignProposalPreview";
 
 const Preview = lazy(() => import("./DesignProposalPreview"));
 type Scope = { type: "site" | "page" | "selection"; pageId?: string; elementId?: string };
-type Execution = { id: string; status: string; stage: string; errorCode?: string; changesetId?: string; retryAvailable: boolean; stages: { key: string; status: string }[] };
+type CreditBalance = { limit:number; used:number; reserved:number; remaining:number; periodStart:string; periodEnd?:string|null; source:"organization"|"user" };
+type Execution = { id: string; status: string; stage: string; errorCode?: string; changesetId?: string; retryAvailable: boolean; stages: { key: string; status: string }[]; creditBalance?: CreditBalance|null };
 type Changeset = { id: string; status: string; expectedDocumentVersion: number; proposedDocument: ProposedDocument; summary: { setupRequired?: string[] } };
 const safeMessages: Record<string, string> = {
   AI_DESIGN_NOT_CONFIGURED: "An administrator must configure Stitch, Claude, a supported Claude model and encrypted prompt retention on the server.",
@@ -11,6 +12,9 @@ const safeMessages: Record<string, string> = {
   AI_EXTERNAL_OUTCOME_UNKNOWN: "A provider may have completed the request. Administrator reconciliation is required before another attempt; no site content was changed.",
   AI_CONVERSION_UNSUPPORTED: "The design contains features that could not be converted safely. No site content was changed.",
   AI_QUOTA_EXCEEDED: "The workspace's daily design quota has been reached.",
+  AI_CREDITS_UNAVAILABLE: "Your current subscription does not include AI credits.",
+  AI_CREDITS_EXHAUSTED: "Your AI credit balance for this billing period is exhausted.",
+  AI_SUBSCRIPTION_REQUIRED: "An active subscription is required to use AI design.",
   AI_EXECUTION_ACTIVE: "A design is already being generated for this website. Resume it or wait for it to finish.",
   AI_PROMPT_EXPIRED: "The saved brief expired. Submit a new brief.",
   DOCUMENT_VERSION_CONFLICT: "The website changed. Generate a new proposal against the latest saved version.",
@@ -39,6 +43,7 @@ export function DesignAssistant({ apiUrl, websiteId, onClose, prepare, apply, pa
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [available, setAvailable] = useState<boolean | null>(null);
+  const [creditBalance,setCreditBalance] = useState<CreditBalance|null>(null);
   const actionKeys = useRef(new Map<string, string>());
   const keyFor = (action: string) => { if (!actionKeys.current.has(action)) actionKeys.current.set(action, crypto.randomUUID()); return actionKeys.current.get(action)!; };
   const storageKey = `forge-design:${websiteId}`;
@@ -46,9 +51,12 @@ export function DesignAssistant({ apiUrl, websiteId, onClose, prepare, apply, pa
   const headers = (key: string, version?: number) => ({ "Content-Type": "application/json", "X-Forge-Intent": "document-command", "Idempotency-Key": key, ...(version ? { "If-Match": `"${websiteId}:document:${version}"` } : {}) });
   useEffect(() => {
     let active = true;
-    void request<{ design: { available: boolean } }>(`${apiUrl}/api/v1/ai/capabilities`).then(value => { if (active) setAvailable(value.design.available); }).catch(() => { if (active) setAvailable(false); });
+    void Promise.all([
+      request<{ design: { available: boolean } }>(`${apiUrl}/api/v1/ai/capabilities`),
+      request<{ success:boolean; balance:CreditBalance }>(`${apiUrl}/api/v1/ai/websites/${websiteId}/credits`).catch(()=>null),
+    ]).then(([capabilities,credits])=>{if(active){setAvailable(capabilities.design.available);if(credits)setCreditBalance(credits.balance);}}).catch(() => { if (active) setAvailable(false); });
     return () => { active = false; };
-  }, [apiUrl]);
+  }, [apiUrl, websiteId]);
   useEffect(() => {
     if (!executionId) return;
     let active = true;
@@ -59,6 +67,7 @@ export function DesignAssistant({ apiUrl, websiteId, onClose, prepare, apply, pa
         const result = await request<{ execution: Execution }>(`${apiUrl}/api/v1/ai/executions/${executionId}`);
         if (!active) return;
         setExecution(result.execution);
+        if(result.execution.creditBalance) setCreditBalance(result.execution.creditBalance);
         failures = 0;
         if (result.execution.changesetId) {
           const resultProposal = await request<{ changeset: Changeset }>(`${apiUrl}/api/v1/ai/changesets/${result.execution.changesetId}`);
@@ -124,6 +133,7 @@ export function DesignAssistant({ apiUrl, websiteId, onClose, prepare, apply, pa
       <div className="flex justify-between gap-4"><h2 className="text-xl font-bold">Design with Stitch + Claude</h2><button disabled={busy} onClick={onClose}>Back to editing</button></div>
       <p className="my-2 text-sm">Generate a design or edit the saved website. Nothing replaces your document until you apply. Publishing is separate.</p>
       <p className="my-2 text-sm text-slate-600">Supported: editable pages, containers, headings, text, links and responsive styles. CMS, forms and imported images still require separate setup.</p>
+      {creditBalance&&<div className="my-3 rounded border border-slate-200 bg-slate-50 p-3 text-sm"><strong>AI credits:</strong> {creditBalance.remaining} remaining · {creditBalance.used} used · {creditBalance.reserved} reserved of {creditBalance.limit} this billing period.</div>}
       {available === false && <p role="status" className="my-3 text-amber-800">{safeMessages.AI_DESIGN_NOT_CONFIGURED}</p>}
       <label className="block">Website brief<textarea aria-label="Design brief" className="my-2 block min-h-32 w-full rounded border p-3" maxLength={64000} value={prompt} onChange={event => setPrompt(event.target.value)} /></label>
       <div className="flex flex-wrap items-center gap-3">
