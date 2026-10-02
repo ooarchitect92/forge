@@ -297,3 +297,12 @@ test("Figma import rejects pathological tree depth before canonical conversion",
     file:{name:"Deep",version:"1",document:{id:"root",type:"DOCUMENT",children:[node]}},
   }),/supported complexity/);
 });
+
+
+test("canonical JSON rejects prototype-polluting keys before command application",()=>{
+  const props=JSON.parse('{"__proto__":{"polluted":true}}');
+  assert.throws(()=>applySiteCommands(document(),[
+    {type:"element.insert",pageId:"home",element:{id:"unsafe",type:"text",props,styles:{},children:[]}},
+  ]),/Reserved JSON key|SITE_COMMAND_INVALID/);
+  assert.equal(({} as {polluted?:boolean}).polluted,undefined);
+});
