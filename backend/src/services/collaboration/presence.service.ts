@@ -24,7 +24,11 @@ const messageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("PING") }).strict(),
 ]);
 let observed = { connections: 0, rooms: 0 };
+let revisionBroadcaster:((websiteId:string,payload:{revision:number;source:string;actorId?:string|null})=>void)|null=null;
 export function getPresenceRoomsSummary() { return { ...observed }; }
+export function notifyWebsiteDocumentRevision(websiteId:string,payload:{revision:number;source:string;actorId?:string|null}) {
+  revisionBroadcaster?.(websiteId,payload);
+}
 function sessionCookie(request: IncomingMessage): string | null {
   const matches = (request.headers.cookie ?? "").split(";").map(v => v.trim()).filter(v => v.startsWith(`${AUTH_COOKIE_NAME}=`));
   if (matches.length !== 1) return null;
@@ -50,6 +54,10 @@ export function initPresenceWebSocketServer(server: HttpServer, deps: Dependenci
       if (ws !== except && p && Date.now() - p.verifiedAt <= 10_000) send(ws, payload);
     }
   }
+  const localRevisionBroadcaster=(websiteId:string,payload:{revision:number;source:string;actorId?:string|null})=>{
+    broadcast(websiteId,{type:"DOCUMENT_REVISION",websiteId,...payload});
+  };
+  revisionBroadcaster=localRevisionBroadcaster;
   function leave(ws: WebSocket) {
     const p = peers.get(ws); if (!p?.state) return;
     const { websiteId, socketId } = p.state; p.state = null;
@@ -138,6 +146,6 @@ export function initPresenceWebSocketServer(server: HttpServer, deps: Dependenci
     }
   }, 1000);
   timer.unref();
-  wss.on("close", () => { clearInterval(timer); server.off("upgrade", upgrade); peers.clear(); rooms.clear(); observe(); });
+  wss.on("close", () => { clearInterval(timer); server.off("upgrade", upgrade); peers.clear(); rooms.clear(); if(revisionBroadcaster===localRevisionBroadcaster)revisionBroadcaster=null; observe(); });
   return wss;
 }
