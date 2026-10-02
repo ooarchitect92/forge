@@ -10,7 +10,7 @@ export class SiteDocumentApiError extends Error {
   }
 }
 async function response<T>(res:Response):Promise<T>{
-  let body:unknown={}; try{body=await res.json();}catch{}
+  let body:unknown={}; try{body=await res.json();}catch{body={};}
   const object=body&&typeof body==="object"&&!Array.isArray(body)?body as Record<string,unknown>:{};
   const error=object.error&&typeof object.error==="object"&&!Array.isArray(object.error)?object.error as Record<string,unknown>:{};
   if(!res.ok||object.success===false) throw new SiteDocumentApiError(
