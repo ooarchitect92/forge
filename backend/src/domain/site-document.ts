@@ -10,6 +10,7 @@ export function assertSafeJsonKeys(value:unknown,path="document",seen=new WeakSe
   if(Array.isArray(value)){
     if(value.length>20_000)throw new AppError(`JSON array is too large at ${path}`,422,"SITE_DOCUMENT_INVALID");
     value.forEach((item,index)=>assertSafeJsonKeys(item,`${path}[${index}]`,seen));
+    seen.delete(value as object);
     return;
   }
   const prototype=Object.getPrototypeOf(value);
@@ -18,6 +19,7 @@ export function assertSafeJsonKeys(value:unknown,path="document",seen=new WeakSe
     if(RESERVED_JSON_KEYS.has(key))throw new AppError(`Reserved JSON key is not allowed at ${path}.${key}`,422,"SITE_DOCUMENT_INVALID");
     assertSafeJsonKeys((value as Record<string,unknown>)[key],`${path}.${key}`,seen);
   }
+  seen.delete(value as object);
 }
 const jsonKeySchema=z.string().max(500).refine(value=>!RESERVED_JSON_KEYS.has(value),"Reserved JSON key is not allowed");
 export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
