@@ -39,10 +39,10 @@ jobs:
       - run: npm run build --prefix backend
       - name: AI and worker contracts (fixtures, no live provider requests)
         working-directory: backend
-        run: node --test dist/tests/site-document-foundation.test.js dist/tests/ai-changeset-integration.test.js dist/tests/job-leases-integration.test.js dist/tests/ai-prompt-cleanup.test.js dist/tests/ai-site-brief.test.js dist/tests/ai-site-blueprint.test.js dist/tests/ai-site-repair.test.js
-      - name: Changed AI UI lint
+        run: node --test dist/tests/site-document-foundation.test.js dist/tests/figma-token-push.test.js dist/tests/ai-changeset-integration.test.js dist/tests/job-leases-integration.test.js dist/tests/ai-prompt-cleanup.test.js dist/tests/ai-site-brief.test.js dist/tests/ai-site-blueprint.test.js dist/tests/ai-site-repair.test.js
+      - name: Changed AI and canonical UI lint
         working-directory: frontend
-        run: npx --no-install eslint src/features/ai/AiSiteAssistant.tsx src/features/ai/DesignAssistant.tsx src/features/ai/DesignProposalPreview.tsx src/features/editor-access/document-save-coordinator.ts
+        run: npx --no-install eslint src/features/ai/AiSiteAssistant.tsx src/features/ai/DesignAssistant.tsx src/features/ai/DesignProposalPreview.tsx src/features/editor-access/document-save-coordinator.ts src/features/site-document/client.ts src/features/site-document/types.ts src/pages/dashboard/SiteDocumentControlCenter.tsx src/pages/dashboard/CanonicalCmsManager.tsx
       - name: Design importer, provider boundaries and durable execution
         working-directory: backend
         run: node --test dist/tests/ai-design.test.js dist/tests/ai-design-integration.test.js
