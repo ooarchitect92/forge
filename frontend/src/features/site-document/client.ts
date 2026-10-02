@@ -109,9 +109,9 @@ export function createSiteDocumentClient(apiUrl:string,websiteId:string){
         await fetch(`${base}/figma/preview`,{method:"POST",credentials:"include",headers:headers(),body:JSON.stringify({fileKey})})
       );
     },
-    async figmaSync(fileKey:string,expectedRevision:number,conflictPolicy:"abort"|"prefer-figma"="abort",key=crypto.randomUUID()){
+    async figmaSync(fileKey:string,expectedRevision:number,conflictPolicy:"abort"|"prefer-figma"="abort",webhookEventId?:string,key=crypto.randomUUID()){
       return response<{success:boolean;revision:number;figmaVersion:string;fileName:string;warnings:string[];conflicts:Array<{kind:string;externalId:string;localId:string;reason:string}>;mappingCount:number}>(
-        await fetch(`${base}/figma/sync`,{method:"POST",credentials:"include",headers:headers(key),body:JSON.stringify({fileKey,expectedRevision,conflictPolicy})})
+        await fetch(`${base}/figma/sync`,{method:"POST",credentials:"include",headers:headers(key),body:JSON.stringify({fileKey,expectedRevision,conflictPolicy,...(webhookEventId?{webhookEventId}:{})})})
       );
     },
     async figmaTokenPushPreview(fileKey:string){
