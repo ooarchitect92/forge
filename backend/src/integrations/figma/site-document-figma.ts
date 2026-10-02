@@ -27,10 +27,11 @@ function rgba(value:unknown):string|undefined {
   if(!value||typeof value!=="object") return undefined;
   const source=value as {color?:unknown;r?:unknown;g?:unknown;b?:unknown;a?:unknown};
   const c=(source.color&&typeof source.color==="object"?source.color:source) as {r?:unknown;g?:unknown;b?:unknown;a?:unknown};
-  if([c.r,c.g,c.b].some(x=>typeof x!=="number")) return undefined;
+  const r=c.r,g=c.g,b=c.b;
+  if(typeof r!=="number"||typeof g!=="number"||typeof b!=="number") return undefined;
   const channel=(x:number)=>Math.max(0,Math.min(255,Math.round(x*255)));
   const a=typeof c.a==="number"?Math.max(0,Math.min(1,c.a)):1;
-  return a<1?`rgba(${channel(c.r)}, ${channel(c.g)}, ${channel(c.b)}, ${a})`:`#${[c.r,c.g,c.b].map((x:number)=>channel(x).toString(16).padStart(2,"0")).join("")}`;
+  return a<1?`rgba(${channel(r)}, ${channel(g)}, ${channel(b)}, ${a})`:`#${[r,g,b].map(x=>channel(x).toString(16).padStart(2,"0")).join("")}`;
 }
 function firstSolid(fills:FigmaPaint[]|undefined):string|undefined {
   const fill=Array.isArray(fills)?fills.find(value=>value?.type==="SOLID"&&value?.visible!==false):undefined;
