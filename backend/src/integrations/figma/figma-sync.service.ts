@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { AppError } from "../../utils/app-error.js";
 import { getActiveConnectorCredential } from "../../platform/integrations/connector-credentials.js";
 import { parseSecretJson } from "../../platform/secrets/secret-provider.js";
@@ -5,8 +6,27 @@ import { getScopedWebsite } from "../../services/websites/scoped-access.js";
 import { applySiteDocumentCommands, getSiteDocument } from "../../services/websites/site-document.service.js";
 import { prisma } from "../../config/prisma.js";
 import { figmaToSiteCommands, type FigmaFileSnapshot, type FigmaVariablesSnapshot } from "./site-document-figma.js";
+import type { SiteDocument, SiteElement } from "../../domain/site-document.js";
+import { canonicalDocumentJson } from "../../services/websites/document-policy.js";
 import { buildFigmaTokenPushPlan, type FigmaLocalVariablesSnapshot } from "./site-document-figma-push.js";
 
+type FigmaSyncMapping={kind:string;externalId:string;localId:string;externalVersion:string|null;localHash:string|null};
+function findElement(elements:SiteElement[],id:string):SiteElement|undefined{
+  for(const element of elements){if(element.id===id)return element;const nested=findElement(element.children??[],id);if(nested)return nested;}
+  return undefined;
+}
+function localValue(document:SiteDocument,mapping:Pick<FigmaSyncMapping,"kind"|"localId">):unknown{
+  if(mapping.kind==="PAGE") return document.pages.find(page=>page.id===mapping.localId)??null;
+  if(mapping.kind==="TOKEN") return document.tokens.find(token=>token.id===mapping.localId)??null;
+  if(mapping.kind==="NODE"){
+    for(const page of document.pages){const found=findElement(page.elements,mapping.localId);if(found)return found;}
+    for(const component of document.components){const found=findElement([component.root],mapping.localId);if(found)return found;}
+  }
+  return null;
+}
+function localHash(document:SiteDocument,mapping:Pick<FigmaSyncMapping,"kind"|"localId">):string{
+  return createHash("sha256").update(canonicalDocumentJson(localValue(document,mapping))).digest("hex");
+}
 function fileKey(value:unknown):string {
   if(typeof value!=="string"||!/^[A-Za-z0-9_-]{6,255}$/.test(value)) throw new AppError("Invalid Figma file key",400,"FIGMA_FILE_KEY_INVALID");
   return value;
@@ -38,34 +58,46 @@ async function credential(websiteId:string,actorId:string){
 }
 export async function previewFigmaSync(input:{websiteId:string;actorId:string;fileKey:string}){
   const key=fileKey(input.fileKey);
-  const [{token},current]=await Promise.all([credential(input.websiteId,input.actorId),getSiteDocument(input.websiteId,input.actorId)]);
+  const [{website,token},current]=await Promise.all([credential(input.websiteId,input.actorId),getSiteDocument(input.websiteId,input.actorId)]);
   const file=await requestJson(`https://api.figma.com/v1/files/${encodeURIComponent(key)}`,token) as FigmaFileSnapshot;
   let variables:FigmaVariablesSnapshot|null=null; const warnings:string[]=[];
   try{variables=await requestJson(`https://api.figma.com/v1/files/${encodeURIComponent(key)}/variables/local`,token) as FigmaVariablesSnapshot;}
   catch(error){if(error instanceof AppError&&["FIGMA_ACCESS_DENIED","FIGMA_UPSTREAM_FAILED"].includes(error.code||"")) warnings.push("Figma Variables were unavailable; layout import can still continue."); else throw error;}
   const proposal=figmaToSiteCommands({fileKey:key,file,variables,current:current.document});
-  return {...proposal,warnings,baseRevision:current.revision};
+  let existing:FigmaSyncMapping[]=[];
+  if(website.organizationId){
+    existing=await prisma.$transaction(async tx=>{
+      await tx.$queryRaw`SELECT set_config('app.tenant_id', ${website.organizationId}, true)`;
+      return tx.figmaNodeMapping.findMany({where:{websiteId:input.websiteId,fileKey:key},select:{kind:true,externalId:true,localId:true,externalVersion:true,localHash:true}});
+    });
+  }
+  const conflicts=existing.filter(mapping=>
+    !!mapping.localHash&&!!mapping.externalVersion&&mapping.externalVersion!==proposal.version&&localHash(current.document,mapping)!==mapping.localHash
+  ).map(mapping=>({kind:mapping.kind,externalId:mapping.externalId,localId:mapping.localId,reason:"Both Forge and Figma changed since the last synchronized version"}));
+  if(conflicts.length) warnings.push(`${conflicts.length} mapped item(s) changed on both sides. Review conflicts before applying Figma-preferred resolution.`);
+  return {...proposal,warnings,conflicts,baseRevision:current.revision};
 }
-export async function applyFigmaSync(input:{websiteId:string;actorId:string;fileKey:string;expectedRevision:number;key:string}){
+export async function applyFigmaSync(input:{websiteId:string;actorId:string;fileKey:string;expectedRevision:number;key:string;conflictPolicy?:"abort"|"prefer-figma"}){
   const proposal=await previewFigmaSync(input);
+  if(proposal.conflicts.length&&input.conflictPolicy!=="prefer-figma") throw new AppError("Figma synchronization has conflicts that require explicit resolution",409,"FIGMA_SYNC_CONFLICT");
   if(proposal.baseRevision!==input.expectedRevision) throw new AppError("The SiteDocument changed while Figma was loading",412,"SITE_DOCUMENT_REVISION_CONFLICT");
   const applied=await applySiteDocumentCommands({websiteId:input.websiteId,actorId:input.actorId,expectedRevision:input.expectedRevision,key:input.key,commands:proposal.commands,source:"FIGMA"});
-  const website=await getScopedWebsite(input.websiteId,input.actorId);
+  const [website,canonical]=await Promise.all([getScopedWebsite(input.websiteId,input.actorId),getSiteDocument(input.websiteId,input.actorId)]);
   if(website.organizationId){
     await prisma.$transaction(async tx=>{
       await tx.$queryRaw`SELECT set_config('app.tenant_id', ${website.organizationId}, true)`;
       for(const mapping of proposal.mappings){
+        const hash=localHash(canonical.document,mapping);
         await tx.figmaNodeMapping.upsert({
           where:{websiteId_fileKey_kind_externalId:{websiteId:input.websiteId,fileKey:input.fileKey,kind:mapping.kind,externalId:mapping.externalId}},
-          update:{localId:mapping.localId,externalVersion:proposal.version,lastSyncedAt:new Date()},
-          create:{websiteId:input.websiteId,organizationId:website.organizationId!,workspaceId:website.workspaceId,fileKey:input.fileKey,kind:mapping.kind,externalId:mapping.externalId,localId:mapping.localId,externalVersion:proposal.version},
+          update:{localId:mapping.localId,externalVersion:proposal.version,localHash:hash,lastSyncedAt:new Date()},
+          create:{websiteId:input.websiteId,organizationId:website.organizationId!,workspaceId:website.workspaceId,fileKey:input.fileKey,kind:mapping.kind,externalId:mapping.externalId,localId:mapping.localId,externalVersion:proposal.version,localHash:hash},
         });
       }
     });
   }
-  return {...applied,fileName:proposal.fileName,figmaVersion:proposal.version,warnings:proposal.warnings,mappingCount:proposal.mappings.length};
+  return {...applied,fileName:proposal.fileName,figmaVersion:proposal.version,warnings:proposal.warnings,conflicts:proposal.conflicts,mappingCount:proposal.mappings.length};
 }
-
 
 async function tokenPushContext(input:{websiteId:string;actorId:string;fileKey:string}){
   const key=fileKey(input.fileKey);
