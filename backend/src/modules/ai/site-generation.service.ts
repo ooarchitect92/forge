@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { AppError } from "../../utils/app-error.js";
 import { prisma } from "../../config/prisma.js";
 import { authorizeWebsiteDocumentWrite, saveWebsiteDocument, type DocumentWriteContext } from "../../services/websites/save-document.js";
@@ -12,6 +13,7 @@ import { diffVisualSiteDocuments } from "../../domain/site-document-diff.js";
 import { legacyWebsiteToSiteDocument } from "../../domain/site-document-legacy.js";
 import { validateSiteDocument } from "../../domain/site-document.js";
 import { ensureSiteDocumentState } from "../../services/websites/site-document-storage.js";
+import { reserveAiCredits, settleAiCredits } from "../../services/ai/credit-wallet.js";
 
 export async function generateSiteDraft(input: { websiteId: string; actorId: string; prompt: string; expectedVersion: number }, providerSnapshot?: { provider: string; model: string }) {
   validateSiteBrief(input.prompt);
@@ -23,41 +25,61 @@ export async function generateSiteDraft(input: { websiteId: string; actorId: str
   if (website.documentVersion !== input.expectedVersion) throw new AppError("Reload before generating a changeset", 412, "DOCUMENT_VERSION_CONFLICT");
   const provider = providerSnapshot ? siteGenerationProviderFromSnapshot(providerSnapshot) : siteGenerationProvider();
   const retention = promptRetentionEnabled();
-  const execution = await prisma.aiExecution.create({ data: { websiteId: website.id, workspaceId: website.workspaceId, organizationId: website.organizationId, actorId: input.actorId, operation: "SITE_GENERATION", provider: provider.name, model: provider.model, inputSummary: { promptLength: input.prompt.trim().length, retryAvailable: retention }, promptCiphertext: retention ? encryptPrompt(input.prompt.trim()) : null, promptExpiresAt: retention ? retentionExpiry() : null } });
+  const executionId = randomUUID();
+  const execution = await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT set_config('app.tenant_id', ${website.organizationId}, true)`;
+    await reserveAiCredits(tx, { organizationId: website.organizationId!, actorId: input.actorId, executionId, units: 1 });
+    return tx.aiExecution.create({ data: { id: executionId, websiteId: website.id, workspaceId: website.workspaceId, organizationId: website.organizationId, actorId: input.actorId, operation: "SITE_GENERATION", provider: provider.name, model: provider.model, inputSummary: { promptLength: input.prompt.trim().length, retryAvailable: retention }, promptCiphertext: retention ? encryptPrompt(input.prompt.trim()) : null, promptExpiresAt: retention ? retentionExpiry() : null, reservedUnits: 1 } });
+  });
   let result: Awaited<ReturnType<typeof provider.generate>>;
   let draft: ReturnType<typeof canonicalSiteFromBlueprint>;
   try {
     ({ result, draft } = await generateValidatedSiteBlueprint(provider, input.prompt.trim(), website.name));
   } catch (error) {
-    await prisma.aiExecution.update({ where: { id: execution.id }, data: { status: "FAILED", errorCode: error instanceof AppError ? error.code : "AI_PROVIDER_UNAVAILABLE", completedAt: new Date() } });
+    await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT set_config('app.tenant_id', ${website.organizationId}, true)`;
+      await tx.aiExecution.update({ where: { id: execution.id }, data: { status: "FAILED", errorCode: error instanceof AppError ? error.code : "AI_PROVIDER_UNAVAILABLE", completedAt: new Date() } });
+      await settleAiCredits(tx, { organizationId: website.organizationId!, actorId: input.actorId, executionId: execution.id, action: "release", reason: "site-generation-provider-failed" });
+    });
     throw error;
   }
   const { editorData, pageNames, sectionCount } = draft;
-  const changeset = await prisma.$transaction(async tx => {
-    const canonical = await ensureSiteDocumentState(tx, website, input.actorId);
-    if (canonical.revision !== input.expectedVersion) throw new AppError("The canonical SiteDocument changed before the proposal was created", 412, "SITE_DOCUMENT_REVISION_CONFLICT");
-    const generatedVisual = legacyWebsiteToSiteDocument({ websiteId: website.id, name: website.name, slug: website.slug, editorData, cmsTypes: [] });
-    const targetCanonical = validateSiteDocument({
-      ...canonical.document,
-      site: { ...canonical.document.site, title: generatedVisual.site.title || canonical.document.site.title, slug: canonical.document.site.slug, defaultLocale: canonical.document.site.defaultLocale, metadata: canonical.document.site.metadata },
-      pages: generatedVisual.pages,
-      tokens: [
-        ...canonical.document.tokens.filter(token => token.source !== "import"),
-        ...generatedVisual.tokens.map(token => ({ ...token, source: "import" as const })),
-      ],
-      extensions: { ...canonical.document.extensions, ...generatedVisual.extensions },
+  try {
+    const changeset = await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT set_config('app.tenant_id', ${website.organizationId}, true)`;
+      const canonical = await ensureSiteDocumentState(tx, website, input.actorId);
+      if (canonical.revision !== input.expectedVersion) throw new AppError("The canonical SiteDocument changed before the proposal was created", 412, "SITE_DOCUMENT_REVISION_CONFLICT");
+      const generatedVisual = legacyWebsiteToSiteDocument({ websiteId: website.id, name: website.name, slug: website.slug, editorData, cmsTypes: [] });
+      const targetCanonical = validateSiteDocument({
+        ...canonical.document,
+        site: { ...canonical.document.site, title: generatedVisual.site.title || canonical.document.site.title, slug: canonical.document.site.slug, defaultLocale: canonical.document.site.defaultLocale, metadata: canonical.document.site.metadata },
+        pages: generatedVisual.pages,
+        tokens: [
+          ...canonical.document.tokens.filter(token => token.source !== "import"),
+          ...generatedVisual.tokens.map(token => ({ ...token, source: "import" as const })),
+        ],
+        extensions: { ...canonical.document.extensions, ...generatedVisual.extensions },
+      });
+      const proposedCommands = diffVisualSiteDocuments(canonical.document, targetCanonical);
+      if (!proposedCommands.length) throw new AppError("The generated proposal does not change the current site", 422, "AI_NO_CHANGES");
+      await tx.aiExecution.update({ where: { id: execution.id }, data: { status: "COMPLETED", outputSummary: { requestId: result.requestId ?? null, pageCount: pageNames.length, sectionCount, commandCount: proposedCommands.length }, completedAt: new Date() } });
+      await settleAiCredits(tx, { organizationId: website.organizationId!, actorId: input.actorId, executionId: execution.id, action: "consume", reason: "site-generation-proposal-completed" });
+      return tx.aiChangeset.create({ data: {
+        executionId: execution.id, websiteId: website.id, workspaceId: website.workspaceId, organizationId: website.organizationId,
+        actorId: input.actorId, expectedDocumentVersion: input.expectedVersion, proposedDocument: editorData,
+        proposedCommands: proposedCommands as unknown as import("../../generated/prisma/index.js").Prisma.InputJsonValue,
+        summary: { provider: result.provider, model: result.model, pageNames, pageCount: pageNames.length, sectionCount, commandCount: proposedCommands.length },
+      } });
     });
-    const proposedCommands = diffVisualSiteDocuments(canonical.document, targetCanonical);
-    if (!proposedCommands.length) throw new AppError("The generated proposal does not change the current site", 422, "AI_NO_CHANGES");
-    await tx.aiExecution.update({ where: { id: execution.id }, data: { status: "COMPLETED", outputSummary: { requestId: result.requestId ?? null, pageCount: pageNames.length, sectionCount, commandCount: proposedCommands.length }, completedAt: new Date() } });
-    return tx.aiChangeset.create({ data: {
-      executionId: execution.id, websiteId: website.id, workspaceId: website.workspaceId, organizationId: website.organizationId,
-      actorId: input.actorId, expectedDocumentVersion: input.expectedVersion, proposedDocument: editorData,
-      proposedCommands: proposedCommands as unknown as import("../../generated/prisma/index.js").Prisma.InputJsonValue,
-      summary: { provider: result.provider, model: result.model, pageNames, pageCount: pageNames.length, sectionCount, commandCount: proposedCommands.length },
-    } });
-  });
-  return { changeset };
+    return { changeset };
+  } catch (error) {
+    await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT set_config('app.tenant_id', ${website.organizationId}, true)`;
+      await tx.aiExecution.updateMany({ where: { id: execution.id, status: { not: "COMPLETED" } }, data: { status: "FAILED", errorCode: error instanceof AppError ? error.code : "AI_PROPOSAL_FAILED", completedAt: new Date() } });
+      await settleAiCredits(tx, { organizationId: website.organizationId!, actorId: input.actorId, executionId: execution.id, action: "consume", reason: "provider-completed-local-proposal-failed" });
+    });
+    throw error;
+  }
 }
 
 export async function getAiChangeset(id: string, actorId: string) {
