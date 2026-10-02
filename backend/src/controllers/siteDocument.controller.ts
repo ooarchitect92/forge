@@ -4,7 +4,7 @@ import {
   applySiteDocumentCommands, getCmsV2Snapshot, getSiteDocument, getSiteDocumentRevision,
   initializeSiteDocument, listSiteDocumentRevisions, previewSiteDocumentCommands, restoreSiteDocumentRevision,
 } from "../services/websites/site-document.service.js";
-import { applyFigmaSync, previewFigmaSync } from "../integrations/figma/figma-sync.service.js";
+import { applyFigmaSync, previewFigmaSync, previewFigmaTokenPush, pushFigmaTokens } from "../integrations/figma/figma-sync.service.js";
 
 function key(req: Request): string {
   const value = req.header("Idempotency-Key");
@@ -106,6 +106,30 @@ export async function applyFigmaSyncHandler(req: Request, res: Response, next: N
       fileKey: req.body?.fileKey,
       expectedRevision: int(req.body?.expectedRevision, "expectedRevision"),
       key: key(req),
+    });
+    res.json({ success: true, ...result });
+  } catch (error) { next(error); }
+}
+
+
+export async function previewFigmaTokenPushHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const result = await previewFigmaTokenPush({
+      websiteId: req.params.id as string,
+      actorId: res.locals.user.id,
+      fileKey: req.body?.fileKey,
+    });
+    res.json({ success: true, ...result });
+  } catch (error) { next(error); }
+}
+
+export async function pushFigmaTokensHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const result = await pushFigmaTokens({
+      websiteId: req.params.id as string,
+      actorId: res.locals.user.id,
+      fileKey: req.body?.fileKey,
+      expectedRevision: int(req.body?.expectedRevision, "expectedRevision"),
     });
     res.json({ success: true, ...result });
   } catch (error) { next(error); }
