@@ -129,6 +129,7 @@ figma.ui.onmessage = async msg => {
   try {
     const payload=msg.payload;
     if(!validPayload(payload)) throw new Error("Unsupported Forge export payload.");
+    await figma.currentPage.loadAsync();
     const replace=msg.mode==="replace";
     await importComponents(payload,replace);
     const roots=[];
