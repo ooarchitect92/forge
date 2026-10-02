@@ -247,3 +247,31 @@ test("command processor covers component variants, interactions and forms", () =
   assert.equal(cleaned.interactions.length,0);
   assert.equal(cleaned.forms.length,0);
 });
+
+
+test("canonical assets reject script and credential-bearing URLs",()=>{
+  assert.throws(()=>applySiteCommands(document(),[
+    {type:"asset.add",asset:{id:"bad-script",kind:"image",url:"javascript:alert(1)",metadata:{}}},
+  ]),/Asset URL/);
+  assert.throws(()=>applySiteCommands(document(),[
+    {type:"asset.add",asset:{id:"bad-credentials",kind:"image",url:"https://user:secret@example.com/a.png",metadata:{}}},
+  ]),/Asset URL/);
+  const safe=applySiteCommands(document(),[
+    {type:"asset.add",asset:{id:"safe",kind:"image",url:"/uploads/a.png",metadata:{}}},
+  ]);
+  assert.equal(safe.assets[0]?.url,"/uploads/a.png");
+});
+
+test("Figma import replaces an existing page occupying the same route",()=>{
+  const proposal=figmaToSiteCommands({
+    fileKey:"Route123",
+    current:document(),
+    file:{name:"Route collision",version:"1",document:{id:"0:0",type:"DOCUMENT",children:[{
+      id:"0:1",type:"CANVAS",children:[{id:"1:1",type:"FRAME",name:"Landing",children:[]}],
+    }]}},
+  });
+  const next=applySiteCommands(document(),proposal.commands);
+  assert.equal(next.pages.length,1);
+  assert.equal(next.pages[0]?.slug,"/");
+  assert.match(next.pages[0]?.id??"",/^figma-page-/);
+});
