@@ -6,6 +6,7 @@ import {
 } from "../services/websites/site-document.service.js";
 import { applyFigmaSync, previewFigmaSync, previewFigmaTokenPush, pushFigmaTokens } from "../integrations/figma/figma-sync.service.js";
 import { getSiteDocumentMetrics } from "../services/websites/site-document-metrics.js";
+import { createFigmaPluginExport } from "../integrations/figma/figma-plugin-export.js";
 
 function key(req: Request): string {
   const value = req.header("Idempotency-Key");
@@ -143,5 +144,20 @@ export async function getSiteDocumentMetricsHandler(req: Request, res: Response,
   try {
     res.setHeader("Cache-Control", "no-store");
     res.json({ success: true, metrics: await getSiteDocumentMetrics(req.params.id as string, res.locals.user.id) });
+  } catch (error) { next(error); }
+}
+
+
+export async function exportFigmaPluginPayloadHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const result=await createFigmaPluginExport({
+      websiteId:req.params.id as string,
+      actorId:res.locals.user.id,
+      pageIds:req.body?.pageIds,
+    });
+    res.setHeader("Cache-Control","no-store");
+    res.setHeader("Content-Type","application/json");
+    res.setHeader("Content-Disposition",`attachment; filename="forge-figma-${result.websiteId}-r${result.revision}.json"`);
+    res.status(200).send(JSON.stringify(result,null,2));
   } catch (error) { next(error); }
 }
