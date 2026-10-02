@@ -1395,6 +1395,8 @@ model FigmaWebhookEvent {
   status         String   @default("PENDING") @db.VarChar(30)
   receivedAt     DateTime @default(now()) @db.Timestamptz(6)
   dismissedAt    DateTime? @db.Timestamptz(6)
+  appliedAt      DateTime? @db.Timestamptz(6)
+  appliedRevision Int?
   subscription   FigmaWebhookSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
 
   @@unique([subscriptionId, eventKey])
