@@ -61,6 +61,18 @@ export function createSiteDocumentClient(apiUrl:string,websiteId:string){
         await fetch(`${base}/metrics`,{credentials:"include"})
       );
     },
+    async figmaConnectionStatus(){
+      return response<{success:boolean;connected:boolean;credential:{id:string;scopes:unknown;version:number}|null}>(
+        await fetch(`${apiUrl}/api/v1/integrations/figma/websites/${encodeURIComponent(websiteId)}/status`,{credentials:"include"})
+      );
+    },
+    async figmaOAuthStart(){
+      return response<{success:boolean;authorizationUrl:string;expiresInSeconds:number;scopes:string[]}>(
+        await fetch(`${apiUrl}/api/v1/integrations/figma/websites/${encodeURIComponent(websiteId)}/oauth/start`,{
+          method:"POST",credentials:"include",headers:headers(crypto.randomUUID()),body:"{}"
+        })
+      );
+    },
     async figmaPreview(fileKey:string){
       return response<{success:boolean;baseRevision:number;fileName:string;version:string;warnings:string[];commands:SiteCommand[];conflicts:Array<{kind:string;externalId:string;localId:string;reason:string}>}>(
         await fetch(`${base}/figma/preview`,{method:"POST",credentials:"include",headers:headers(),body:JSON.stringify({fileKey})})
