@@ -210,6 +210,7 @@ export function validateSiteDocument(input: unknown): SiteDocument {
   unique(document.cms.collections.map(collection => collection.id), "Collection");
   unique(document.cms.items.map(item => item.id), "CMS item");
   unique(document.cms.bindings.map(binding => binding.id), "CMS binding");
+  unique(document.interactions.map(interaction => interaction.id), "Interaction");
   unique(document.forms.map(form => form.id), "Form");
   unique(document.locales.map(locale => locale.id), "Locale overlay");
   unique(document.experiments.map(experiment => experiment.id), "Experiment");
@@ -234,6 +235,18 @@ export function validateSiteDocument(input: unknown): SiteDocument {
   }
 
   const knownElementIds = new Set(elementIds);
+  const knownComponentIds = new Set(document.components.map(component => component.id));
+  const validateElementRefs=(elements:SiteElement[]):void=>{
+    for(const element of elements){
+      if(element.componentId&&!knownComponentIds.has(element.componentId)) throw new AppError("Element references an unknown component",422,"SITE_DOCUMENT_INVALID");
+      validateElementRefs(element.children??[]);
+    }
+  };
+  for(const page of document.pages) validateElementRefs(page.elements);
+  for(const component of document.components) validateElementRefs([component.root]);
+  for(const interaction of document.interactions){
+    if(interaction.elementId&&!knownElementIds.has(interaction.elementId)) throw new AppError("Interaction references an unknown element",422,"SITE_DOCUMENT_INVALID");
+  }
   for (const item of document.cms.items) {
     if (!collectionIds.has(item.collectionId)) throw new AppError("CMS item references an unknown collection", 422, "SITE_DOCUMENT_INVALID");
   }
