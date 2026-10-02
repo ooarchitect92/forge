@@ -108,6 +108,7 @@ export async function applyFigmaSyncHandler(req: Request, res: Response, next: N
       expectedRevision: int(req.body?.expectedRevision, "expectedRevision"),
       key: key(req),
       conflictPolicy: req.body?.conflictPolicy === "prefer-figma" ? "prefer-figma" : "abort",
+      webhookEventId: typeof req.body?.webhookEventId === "string" ? req.body.webhookEventId : undefined,
     });
     res.json({ success: true, ...result });
   } catch (error) { next(error); }
