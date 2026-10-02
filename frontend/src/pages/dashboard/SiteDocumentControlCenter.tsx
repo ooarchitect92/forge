@@ -23,6 +23,7 @@ export default function SiteDocumentControlCenter() {
   const [error,setError] = useState("");
   const [figmaKey,setFigmaKey] = useState("");
   const [figmaPreview,setFigmaPreview] = useState<{fileName:string;version:string;warnings:string[];commands:SiteCommand[]}|null>(null);
+  const [tokenPushPreview,setTokenPushPreview] = useState<{createCount:number;updateCount:number;skipCount:number;warnings:string[];actions:Array<{tokenId:string;tokenName:string;action:"CREATE"|"UPDATE"|"SKIP";reason?:string}>}|null>(null);
 
   const refresh = useCallback(async () => {
     setError("");
@@ -55,6 +56,19 @@ export default function SiteDocumentControlCenter() {
     try{await client.figmaSync(figmaKey.trim(),model.revision);setFigmaPreview(null);await refresh();}
     catch(failure){setError(errorMessage(failure));}finally{setBusy(false);}
   }
+  async function previewTokenPush(){
+    if(!figmaKey.trim()) return;
+    setBusy(true);setError("");setTokenPushPreview(null);
+    try{setTokenPushPreview(await client.figmaTokenPushPreview(figmaKey.trim()));}
+    catch(failure){setError(errorMessage(failure));}finally{setBusy(false);}
+  }
+  async function pushTokens(){
+    if(!model||!figmaKey.trim()) return;
+    if(!window.confirm("Push the reviewed canonical token changes to this Figma file?")) return;
+    setBusy(true);setError("");
+    try{await client.figmaTokenPush(figmaKey.trim(),model.revision);setTokenPushPreview(null);}
+    catch(failure){setError(errorMessage(failure));}finally{setBusy(false);}
+  }
   async function restore(revision:number){
     if(!model||revision===model.revision) return;
     if(!window.confirm(`Restore revision ${revision}? This creates a new revision and does not erase history.`)) return;
@@ -79,6 +93,7 @@ export default function SiteDocumentControlCenter() {
         </div>
         <div className="flex gap-2">
           <Link to="/dashboard" className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold hover:bg-slate-800">Dashboard</Link>
+          <Link to={`/dashboard/site-document/${websiteId}/cms`} className="rounded-lg border border-violet-500/50 px-4 py-2 text-sm font-semibold text-violet-200 hover:bg-violet-500/10">CMS 2.0</Link>
           <Link to={`/editor/${websiteId}`} className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold hover:bg-violet-500">Open editor</Link>
         </div>
       </header>
@@ -106,9 +121,19 @@ export default function SiteDocumentControlCenter() {
           <label className="mt-5 block text-xs font-semibold uppercase tracking-wider text-slate-400">Figma file key</label>
           <div className="mt-2 flex gap-2">
             <input value={figmaKey} onChange={event=>setFigmaKey(event.target.value)} placeholder="AbCdEf123…" className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-violet-500"/>
-            <button disabled={busy||!figmaKey.trim()} onClick={previewFigma} className="rounded-lg border border-violet-500/50 px-4 py-2 text-sm font-semibold text-violet-200 disabled:opacity-40">Preview</button>
+            <button disabled={busy||!figmaKey.trim()} onClick={previewFigma} className="rounded-lg border border-violet-500/50 px-4 py-2 text-sm font-semibold text-violet-200 disabled:opacity-40">Import preview</button>
+            <button disabled={busy||!figmaKey.trim()||!model?.persisted} onClick={previewTokenPush} className="rounded-lg border border-emerald-500/50 px-4 py-2 text-sm font-semibold text-emerald-200 disabled:opacity-40">Token push preview</button>
           </div>
           <p className="mt-2 text-xs text-slate-500">The backend expects an active organization-scoped Figma connector credential; raw tokens are not accepted by this screen.</p>
+          {tokenPushPreview&&<div className="mt-5 rounded-xl border border-emerald-700/50 bg-emerald-950/20 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2"><div><div className="font-semibold">Forge → Figma design tokens</div><div className="text-xs text-slate-500">Only values representable by Figma Variables are pushed.</div></div><div className="text-xs font-bold text-emerald-300">{tokenPushPreview.createCount} create · {tokenPushPreview.updateCount} update · {tokenPushPreview.skipCount} skip</div></div>
+            {tokenPushPreview.warnings.slice(0,5).map(warning=><div key={warning} className="mt-2 rounded-lg bg-amber-400/10 p-2 text-xs text-amber-200">{warning}</div>)}
+            <div className="mt-4 max-h-40 overflow-auto rounded-lg bg-black/30 p-3 font-mono text-[11px] text-slate-400">
+              {tokenPushPreview.actions.slice(0,40).map(action=><div key={action.tokenId}>{action.action.padEnd(6," ")} · {action.tokenName}{action.reason?` · ${action.reason}`:""}</div>)}
+              {tokenPushPreview.actions.length>40&&<div>… {tokenPushPreview.actions.length-40} more</div>}
+            </div>
+            <button disabled={busy||(!tokenPushPreview.createCount&&!tokenPushPreview.updateCount)} onClick={pushTokens} className="mt-4 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold hover:bg-emerald-500 disabled:opacity-40">Push reviewed tokens to Figma</button>
+          </div>}
           {figmaPreview&&<div className="mt-5 rounded-xl border border-slate-700 bg-slate-950/70 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2"><div><div className="font-semibold">{figmaPreview.fileName}</div><div className="text-xs text-slate-500">Figma version {figmaPreview.version||"unknown"}</div></div><div className="text-sm font-bold text-violet-300">{figmaPreview.commands.length} commands</div></div>
             {figmaPreview.warnings.map(warning=><div key={warning} className="mt-3 rounded-lg bg-amber-400/10 p-2 text-xs text-amber-200">{warning}</div>)}
@@ -128,6 +153,7 @@ export default function SiteDocumentControlCenter() {
             <div className="flex justify-between rounded-lg bg-slate-950/60 p-3"><span className="text-slate-400">Assets</span><strong>{document?.assets.length??0}</strong></div>
             <div className="flex justify-between rounded-lg bg-slate-950/60 p-3"><span className="text-slate-400">CMS bindings</span><strong>{document?.cms.bindings.length??0}</strong></div>
           </div>
+          <Link to={`/dashboard/site-document/${websiteId}/cms`} className="mt-4 inline-flex rounded-lg border border-violet-500/40 px-3 py-2 text-xs font-bold text-violet-200">Manage canonical CMS</Link>
         </section>
       </div>
 
