@@ -47,7 +47,7 @@ async function requestJson(url:string,token:string,init?:{method?:"GET"|"POST";b
     throw new AppError("Figma request failed",502,"FIGMA_UPSTREAM_FAILED");
   }finally{clearTimeout(timer);}
 }
-async function credential(websiteId:string,actorId:string){
+export async function getFigmaAccessContext(websiteId:string,actorId:string){
   const website=await getScopedWebsite(websiteId,actorId);
   if(!website.organizationId) throw new AppError("Website ownership migration is required",503,"TENANT_MIGRATION_REQUIRED");
   const row=await getActiveConnectorCredential({organizationId:website.organizationId,websiteId,provider:"figma"});
@@ -67,7 +67,7 @@ async function credential(websiteId:string,actorId:string){
 }
 export async function previewFigmaSync(input:{websiteId:string;actorId:string;fileKey:string}){
   const key=fileKey(input.fileKey);
-  const [{website,token},current]=await Promise.all([credential(input.websiteId,input.actorId),getSiteDocument(input.websiteId,input.actorId)]);
+  const [{website,token},current]=await Promise.all([getFigmaAccessContext(input.websiteId,input.actorId),getSiteDocument(input.websiteId,input.actorId)]);
   const file=await requestJson(`https://api.figma.com/v1/files/${encodeURIComponent(key)}`,token) as FigmaFileSnapshot;
   let variables:FigmaVariablesSnapshot|null=null; const warnings:string[]=[];
   try{variables=await requestJson(`https://api.figma.com/v1/files/${encodeURIComponent(key)}/variables/local`,token) as FigmaVariablesSnapshot;}
@@ -111,7 +111,7 @@ export async function applyFigmaSync(input:{websiteId:string;actorId:string;file
 async function tokenPushContext(input:{websiteId:string;actorId:string;fileKey:string}){
   const key=fileKey(input.fileKey);
   const [{website,token},current]=await Promise.all([
-    credential(input.websiteId,input.actorId),
+    getFigmaAccessContext(input.websiteId,input.actorId),
     getSiteDocument(input.websiteId,input.actorId),
   ]);
   if(!website.organizationId) throw new AppError("Website ownership migration is required",503,"TENANT_MIGRATION_REQUIRED");
