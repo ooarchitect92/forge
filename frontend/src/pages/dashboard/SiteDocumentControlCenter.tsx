@@ -19,6 +19,7 @@ export default function SiteDocumentControlCenter() {
   const client = useMemo(() => createSiteDocumentClient(apiUrl, websiteId), [websiteId]);
   const [model,setModel] = useState<SiteDocumentEnvelope|null>(null);
   const [revisions,setRevisions] = useState<SiteDocumentRevisionSummary[]>([]);
+  const [metrics,setMetrics] = useState<{operations:number;errors:number;errorRate:number;averageDurationMs:number;p95DurationMs:number;commandCount:number}|null>(null);
   const [loading,setLoading] = useState(true);
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState("");
@@ -28,14 +29,14 @@ export default function SiteDocumentControlCenter() {
 
   const refresh = useCallback(async () => {
     setError("");
-    const [document,revs] = await Promise.all([client.get(), client.revisions()]);
-    setModel(document); setRevisions(revs);
+    const [document,revs,metricResult] = await Promise.all([client.get(), client.revisions(), client.metrics().catch(()=>null)]);
+    setModel(document); setRevisions(revs); if(metricResult)setMetrics(metricResult.metrics);
   },[client]);
 
   useEffect(() => {
     const controller=new AbortController(); setLoading(true);
-    Promise.all([client.get(controller.signal),client.revisions()])
-      .then(([document,revs])=>{ if(!controller.signal.aborted){setModel(document);setRevisions(revs);} })
+    Promise.all([client.get(controller.signal),client.revisions(),client.metrics().catch(()=>null)])
+      .then(([document,revs,metricResult])=>{ if(!controller.signal.aborted){setModel(document);setRevisions(revs);if(metricResult)setMetrics(metricResult.metrics);} })
       .catch(failure=>{if(!controller.signal.aborted)setError(errorMessage(failure));})
       .finally(()=>{if(!controller.signal.aborted)setLoading(false);});
     return ()=>controller.abort();
@@ -118,6 +119,12 @@ export default function SiteDocumentControlCenter() {
         ].map(([label,value])=><div key={label} className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5"><div className="text-xs uppercase tracking-wider text-slate-500">{label}</div><div className="mt-2 text-xl font-bold">{value}</div></div>)}
       </section>
 
+      {metrics&&<section className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4"><div className="text-xs uppercase tracking-wider text-slate-500">24h commands</div><div className="mt-1 text-lg font-bold">{metrics.commandCount}</div></div>
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4"><div className="text-xs uppercase tracking-wider text-slate-500">Avg command latency</div><div className="mt-1 text-lg font-bold">{Math.round(metrics.averageDurationMs)} ms</div></div>
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4"><div className="text-xs uppercase tracking-wider text-slate-500">P95 latency</div><div className="mt-1 text-lg font-bold">{Math.round(metrics.p95DurationMs)} ms</div></div>
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4"><div className="text-xs uppercase tracking-wider text-slate-500">Error rate</div><div className="mt-1 text-lg font-bold">{(metrics.errorRate*100).toFixed(1)}%</div></div>
+      </section>}
       <div className="mt-8 grid gap-6 lg:grid-cols-[1.2fr_.8fr]">
         <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
           <div className="flex items-center justify-between"><div><h2 className="text-lg font-bold">Figma sync</h2><p className="mt-1 text-sm text-slate-400">Preview a governed Figma import as typed commands before applying it.</p></div><span className="rounded-full bg-emerald-400/10 px-2 py-1 text-xs font-semibold text-emerald-300">Review first</span></div>
