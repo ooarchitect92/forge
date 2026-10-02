@@ -5,15 +5,18 @@ import { getScopedWebsite } from "../../services/websites/scoped-access.js";
 import { applySiteDocumentCommands, getSiteDocument } from "../../services/websites/site-document.service.js";
 import { prisma } from "../../config/prisma.js";
 import { figmaToSiteCommands, type FigmaFileSnapshot, type FigmaVariablesSnapshot } from "./site-document-figma.js";
+import { buildFigmaTokenPushPlan, type FigmaLocalVariablesSnapshot } from "./site-document-figma-push.js";
 
 function fileKey(value:unknown):string {
   if(typeof value!=="string"||!/^[A-Za-z0-9_-]{6,255}$/.test(value)) throw new AppError("Invalid Figma file key",400,"FIGMA_FILE_KEY_INVALID");
   return value;
 }
-async function requestJson(url:string,token:string):Promise<any>{
+async function requestJson(url:string,token:string,init?:{method?:"GET"|"POST";body?:unknown}):Promise<any>{
   const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),20_000);
   try{
-    const response=await fetch(url,{headers:{Authorization:`Bearer ${token}`,Accept:"application/json"},signal:controller.signal,redirect:"error"});
+    const serialized=init?.body===undefined?undefined:JSON.stringify(init.body);
+    if(serialized&&Buffer.byteLength(serialized)>4*1024*1024) throw new AppError("Figma request exceeds supported size",413,"FIGMA_REQUEST_TOO_LARGE");
+    const response=await fetch(url,{method:init?.method??"GET",headers:{Authorization:`Bearer ${token}`,Accept:"application/json",...(serialized?{"Content-Type":"application/json"}:{})},body:serialized,signal:controller.signal,redirect:"error"});
     const text=await response.text();
     if(Buffer.byteLength(text)>12*1024*1024) throw new AppError("Figma response exceeds supported size",413,"FIGMA_RESPONSE_TOO_LARGE");
     if(!response.ok) throw new AppError(response.status===403?"Figma access was denied":"Figma request failed",response.status===404?404:502,response.status===403?"FIGMA_ACCESS_DENIED":"FIGMA_UPSTREAM_FAILED");
@@ -61,4 +64,74 @@ export async function applyFigmaSync(input:{websiteId:string;actorId:string;file
     });
   }
   return {...applied,fileName:proposal.fileName,figmaVersion:proposal.version,warnings:proposal.warnings,mappingCount:proposal.mappings.length};
+}
+
+
+async function tokenPushContext(input:{websiteId:string;actorId:string;fileKey:string}){
+  const key=fileKey(input.fileKey);
+  const [{website,token},current]=await Promise.all([
+    credential(input.websiteId,input.actorId),
+    getSiteDocument(input.websiteId,input.actorId),
+  ]);
+  if(!website.organizationId) throw new AppError("Website ownership migration is required",503,"TENANT_MIGRATION_REQUIRED");
+  const [variables,mappings]=await Promise.all([
+    requestJson(`https://api.figma.com/v1/files/${encodeURIComponent(key)}/variables/local`,token) as Promise<FigmaLocalVariablesSnapshot>,
+    prisma.$transaction(async tx=>{
+      await tx.$queryRaw`SELECT set_config('app.tenant_id', ${website.organizationId}, true)`;
+      return tx.figmaNodeMapping.findMany({where:{websiteId:input.websiteId,fileKey:key,kind:"TOKEN"},select:{kind:true,externalId:true,localId:true}});
+    }),
+  ]);
+  return {key,website,token,current,variables,mappings};
+}
+
+export async function previewFigmaTokenPush(input:{websiteId:string;actorId:string;fileKey:string}){
+  const context=await tokenPushContext(input);
+  const plan=buildFigmaTokenPushPlan({fileKey:context.key,document:context.current.document,variables:context.variables,mappings:context.mappings});
+  return {
+    fileKey:context.key,baseRevision:context.current.revision,
+    actions:plan.actions,warnings:plan.warnings,
+    createCount:plan.createCount,updateCount:plan.updateCount,skipCount:plan.skipCount,
+  };
+}
+
+export async function pushFigmaTokens(input:{websiteId:string;actorId:string;fileKey:string;expectedRevision:number}){
+  const context=await tokenPushContext(input);
+  if(context.current.revision!==input.expectedRevision) throw new AppError("The SiteDocument changed while preparing the Figma token push",412,"SITE_DOCUMENT_REVISION_CONFLICT");
+  const plan=buildFigmaTokenPushPlan({fileKey:context.key,document:context.current.document,variables:context.variables,mappings:context.mappings});
+  if(!Object.keys(plan.body).length) return {
+    fileKey:context.key,baseRevision:context.current.revision,createCount:0,updateCount:0,skipCount:plan.skipCount,
+    warnings:plan.warnings,mappingCount:0,noChanges:true,
+  };
+  const result=await requestJson(`https://api.figma.com/v1/files/${encodeURIComponent(context.key)}/variables`,context.token,{method:"POST",body:plan.body}) as {
+    meta?:{tempIdToRealId?:Record<string,string>};
+  };
+  const temp=result?.meta?.tempIdToRealId??{};
+  let mappingCount=0;
+  if(context.website.organizationId){
+    await prisma.$transaction(async tx=>{
+      await tx.$queryRaw`SELECT set_config('app.tenant_id', ${context.website.organizationId}, true)`;
+      for(const mapping of plan.temporaryMappings){
+        const externalId=temp[mapping.temporaryId];
+        if(!externalId) continue;
+        mappingCount++;
+        await tx.figmaNodeMapping.upsert({
+          where:{websiteId_fileKey_kind_externalId:{websiteId:input.websiteId,fileKey:context.key,kind:"TOKEN",externalId}},
+          update:{localId:mapping.tokenId,lastSyncedAt:new Date()},
+          create:{
+            websiteId:input.websiteId,organizationId:context.website.organizationId!,workspaceId:context.website.workspaceId,
+            fileKey:context.key,kind:"TOKEN",externalId,localId:mapping.tokenId,lastSyncedAt:new Date(),
+          },
+        });
+      }
+      await tx.auditLog.create({data:{
+        userId:input.actorId,action:"FIGMA_TOKENS_PUSHED",targetResource:`website:${input.websiteId}`,
+        details:{fileKey:context.key,revision:context.current.revision,created:plan.createCount,updated:plan.updateCount,skipped:plan.skipCount},
+      }});
+    });
+  }
+  return {
+    fileKey:context.key,baseRevision:context.current.revision,
+    createCount:plan.createCount,updateCount:plan.updateCount,skipCount:plan.skipCount,
+    warnings:plan.warnings,mappingCount,noChanges:false,
+  };
 }
