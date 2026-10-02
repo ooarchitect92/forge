@@ -24,7 +24,7 @@ function headers(key?:string):HeadersInit{
   return {"Content-Type":"application/json",...(key?{"Idempotency-Key":key}: {})};
 }
 export function createSiteDocumentClient(apiUrl:string,websiteId:string){
-  const base=`${apiUrl}/api/websites/${encodeURIComponent(websiteId)}/site-document`;
+  const base=`${apiUrl}/api/v1/websites/${encodeURIComponent(websiteId)}/site-document`;
   return {
     async get(signal?:AbortSignal):Promise<SiteDocumentEnvelope>{
       return response<SiteDocumentEnvelope & {success:boolean}>(await fetch(base,{credentials:"include",signal}));
